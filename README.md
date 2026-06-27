@@ -1,5 +1,7 @@
 # Group Trip Planner
 
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/zhousizhi666-coder/group-trip-planner)
+
 一个多人共创旅行行程工具。当前内置澳洲 10 晚示例，支持：
 
 - 输入基础旅行约束
