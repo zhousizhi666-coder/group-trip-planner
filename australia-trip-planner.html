@@ -878,8 +878,41 @@
       white-space: pre-wrap;
     }
 
+    .collab-actions {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .task-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fbfcfc;
+      display: grid;
+      gap: 8px;
+      align-content: start;
+    }
+
+    .task-card strong {
+      font-size: 15px;
+      color: var(--ink);
+    }
+
+    .task-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .task-card .button-row {
+      margin-top: 2px;
+    }
+
     .ai-output {
-      min-height: 170px;
+      min-height: 112px;
       border: 1px solid var(--line);
       border-radius: 8px;
       padding: 14px;
@@ -1546,7 +1579,7 @@
         const output = document.getElementById("aiOutput");
         if (output) {
           const generated = getGeneratedTrip();
-          output.textContent = generated ? formatGeneratedSummary(generated) : "在线推演结果会显示在这里。生成后，行程总览和下方城市模块会同步更新。";
+          output.textContent = generated ? formatGeneratedSummary(generated) : "还没有生成新版。先收集建议，再点击“生成新版计划”。";
         }
       } catch {
         renderIdeaList();
@@ -1763,9 +1796,33 @@
       });
     }
 
-    function renderIdeasTab() {
-      const generated = getGeneratedTrip();
-      workspaceBodyEl.innerHTML = `
+    function renderIdeasPanelMarkup(generated) {
+      return `
+        <div class="collab-actions">
+          <div class="task-card">
+            <strong>1. 提出想法</strong>
+            <p>把每个人对景点、住宿、节奏、预算、航班时间的偏好收集到下面。</p>
+            <div class="button-row">
+              <button class="action-btn secondary" type="button" id="focusIdeaForm">去填写</button>
+            </div>
+          </div>
+          <div class="task-card">
+            <strong>2. 生成新版行程</strong>
+            <p>基于当前行程和已收集建议，在线生成一版新的可讨论计划。</p>
+            <div class="button-row">
+              <button class="action-btn" type="button" id="generateAI">生成新版计划</button>
+            </div>
+          </div>
+          <div class="task-card">
+            <strong>3. 恢复与整理</strong>
+            <p>不满意新版时恢复原计划；建议会继续保留，方便重新生成。</p>
+            <div class="button-row">
+              <button class="action-btn secondary" type="button" id="restorePlan">恢复原计划</button>
+              <button class="action-btn secondary" type="button" id="clearIdeas">清空建议</button>
+            </div>
+          </div>
+        </div>
+
         <div class="idea-layout">
           <div class="block">
             <h4>输入一条想法</h4>
@@ -1807,20 +1864,16 @@
                 <textarea name="text" placeholder="例如：圣灵群岛想住得好一点；墨尔本不想太早起；悉尼想去蓝山；珀斯 188 Apartments 看起来便宜，可以考虑吗？" required></textarea>
               </label>
               <div class="button-row">
-                <button class="action-btn" type="submit">保存并判断影响</button>
+                <button class="action-btn" type="submit">保存想法</button>
                 <button class="action-btn secondary" type="button" id="fillExample">填一个示例</button>
               </div>
             </form>
           </div>
 
           <div class="block">
-            <h4>在线推演</h4>
-            <ul class="list">
-              <li>把基础约束、当前行程和大家建议一起提交，自动生成新版计划。</li>
-              <li>输出会说明哪些建议被采纳，哪些建议会冲突，以及替代方案。</li>
-              <li>生成结果只作为讨论稿，订房和航班仍需要最终核验。</li>
-            </ul>
-            <div class="note">适合先收集同行偏好，再统一生成一版可讨论的行程调整稿。</div>
+            <h4>生成结果</h4>
+            <div class="status-line" id="aiStatus"></div>
+            <div class="ai-output" id="aiOutput">${generated ? escapeHTML(formatGeneratedSummary(generated)) : "还没有生成新版。先收集建议，再点击“生成新版计划”。"}</div>
           </div>
         </div>
 
@@ -1828,21 +1881,12 @@
           <h4>已收集的建议</h4>
           <div class="idea-list" id="ideaList"></div>
         </div>
-
-        <div class="block" style="margin-top: 14px;">
-          <h4>导出给 AI 的重排提示</h4>
-          <textarea class="export-box" id="exportBox" readonly></textarea>
-          <div class="button-row">
-            <button class="action-btn" type="button" id="refreshExport">刷新导出内容</button>
-            <button class="action-btn" type="button" id="generateAI">生成新版计划</button>
-            <button class="action-btn secondary" type="button" id="downloadExport">下载 JSON</button>
-            <button class="action-btn secondary" type="button" id="restorePlan">恢复原计划</button>
-            <button class="action-btn secondary" type="button" id="clearIdeas">清空本地建议</button>
-          </div>
-          <div class="status-line" id="aiStatus"></div>
-          <div class="ai-output" id="aiOutput">${generated ? escapeHTML(formatGeneratedSummary(generated)) : "在线推演结果会显示在这里。生成后，行程总览和下方目的地模块会同步更新。"}</div>
-        </div>
       `;
+    }
+
+    function renderIdeasTab() {
+      const generated = getGeneratedTrip();
+      workspaceBodyEl.innerHTML = renderIdeasPanelMarkup(generated);
 
       bindIdeaEvents();
       renderIdeaList();
@@ -1923,88 +1967,13 @@
 
       detail.innerHTML = `
         <header class="place-head" style="background-image: url('${place.image}')">
-          <div class="pill-row"><span class="pill">${place.dates}</span><span class="pill">本地保存</span><span class="pill">可导出给 AI</span></div>
+          <div class="pill-row"><span class="pill">${place.dates}</span><span class="pill">建议收集</span><span class="pill">可生成新版</span></div>
           <h2>${place.name}</h2>
           <p>${place.thesis}</p>
         </header>
         <div class="detail-body">
           <div class="main-col" style="grid-column: 1 / -1;">
-            <div class="idea-layout">
-              <div class="block">
-                <h4>输入一条想法</h4>
-                <form class="idea-form" id="ideaForm">
-                  <div class="field-grid">
-                    <label>谁提的
-                      <input name="name" placeholder="例如：我 / A / B" autocomplete="off" />
-                    </label>
-                    <label>关联地点
-                      <select name="destination">
-                        <option value="全程">全程</option>
-                        <option value="珀斯">珀斯</option>
-                        <option value="墨尔本">墨尔本</option>
-                        <option value="圣灵群岛">圣灵群岛</option>
-                        <option value="悉尼">悉尼</option>
-                        <option value="住宿">住宿</option>
-                        <option value="航班">航班</option>
-                      </select>
-                    </label>
-                    <label>建议类型
-                      <select name="category">
-                        <option value="想加景点">想加景点</option>
-                        <option value="想删/压缩">想删/压缩</option>
-                        <option value="住宿偏好">住宿偏好</option>
-                        <option value="预算限制">预算限制</option>
-                        <option value="航班时间">航班时间</option>
-                        <option value="节奏偏好">节奏偏好</option>
-                      </select>
-                    </label>
-                    <label>优先级
-                      <select name="priority">
-                        <option value="nice">想要，但可让步</option>
-                        <option value="important">比较重要</option>
-                        <option value="must">必须满足</option>
-                      </select>
-                    </label>
-                  </div>
-                  <label>具体想法
-                    <textarea name="text" placeholder="例如：圣灵群岛想住得好一点；墨尔本不想太早起；悉尼想去蓝山；珀斯 188 Apartments 看起来便宜，可以考虑吗？" required></textarea>
-                  </label>
-                  <div class="button-row">
-                    <button class="action-btn" type="submit">保存并判断影响</button>
-                    <button class="action-btn secondary" type="button" id="fillExample">填一个示例</button>
-                  </div>
-                </form>
-              </div>
-
-              <div class="block">
-                <h4>在线推演</h4>
-                <ul class="list">
-                  <li>把大家的建议和当前行程一起提交，自动生成新版计划。</li>
-                  <li>输出会说明哪些建议被采纳，哪些建议会冲突，以及替代方案。</li>
-                  <li>生成结果只作为讨论稿，订房和航班仍需要最终核验。</li>
-                </ul>
-                <div class="note">适合先收集同行偏好，再统一生成一版可讨论的行程调整稿。</div>
-              </div>
-            </div>
-
-            <div class="block">
-              <h4>已收集的建议</h4>
-              <div class="idea-list" id="ideaList"></div>
-            </div>
-
-            <div class="block">
-              <h4>导出给 AI 的重排提示</h4>
-              <textarea class="export-box" id="exportBox" readonly></textarea>
-              <div class="button-row">
-                <button class="action-btn" type="button" id="refreshExport">刷新导出内容</button>
-                <button class="action-btn" type="button" id="generateAI">生成新版计划</button>
-                <button class="action-btn secondary" type="button" id="downloadExport">下载 JSON</button>
-                <button class="action-btn secondary" type="button" id="restorePlan">恢复原计划</button>
-                <button class="action-btn secondary" type="button" id="clearIdeas">清空本地建议</button>
-              </div>
-              <div class="status-line" id="aiStatus"></div>
-              <div class="ai-output" id="aiOutput">${generated ? escapeHTML(formatGeneratedSummary(generated)) : "在线推演结果会显示在这里。生成后，行程总览和下方城市模块会同步更新。"}</div>
-            </div>
+            ${renderIdeasPanelMarkup(generated)}
           </div>
         </div>
       `;
@@ -2084,11 +2053,10 @@
     function bindIdeaEvents() {
       const form = document.getElementById("ideaForm");
       const fillExample = document.getElementById("fillExample");
-      const refreshExport = document.getElementById("refreshExport");
-      const downloadExport = document.getElementById("downloadExport");
       const clearIdeas = document.getElementById("clearIdeas");
       const generateAI = document.getElementById("generateAI");
       const restorePlan = document.getElementById("restorePlan");
+      const focusIdeaForm = document.getElementById("focusIdeaForm");
       if (!form) return;
 
       form.addEventListener("submit", async event => {
@@ -2133,7 +2101,10 @@
         form.elements.text.value = "圣灵群岛想住得好一点，如果 Mirage 比 Portside 贵很多，可以看看其他城市住宿能不能压预算。";
       });
 
-      refreshExport?.addEventListener("click", refreshIdeaExport);
+      focusIdeaForm?.addEventListener("click", () => {
+        form.scrollIntoView({ behavior: "smooth", block: "start" });
+        form.elements.text.focus();
+      });
 
       generateAI?.addEventListener("click", async () => {
         const status = document.getElementById("aiStatus");
@@ -2194,33 +2165,6 @@
         const output = document.getElementById("aiOutput");
         status.textContent = "已恢复原计划。";
         output.textContent = "已恢复到初始行程版本。";
-      });
-
-      downloadExport?.addEventListener("click", () => {
-        const payload = {
-          exportedAt: new Date().toISOString(),
-          currentTripConstraints: {
-            route: "Perth 3 nights, Melbourne 2 nights, Whitsundays 3 nights, Sydney 2 nights",
-            hardConstraints: [
-              "2026-09-26 08:00 arrive Perth",
-              "2026-09-27 to 2026-09-28 Ctrip Pink Lake + Pinnacles two-day tour",
-              "2026-10-06 evening Sydney to Beijing",
-              "Three travelers, one couple, two-bedroom lodging preferred",
-              "Accommodation budget target under CNY 23,000"
-            ]
-          },
-          ideas: getIdeas(),
-          prompt: buildIdeaExport(),
-          currentTrip: getCurrentTripPayload(),
-          generatedTrip: getGeneratedTrip()
-        };
-        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = "australia-trip-ideas.json";
-        link.click();
-        URL.revokeObjectURL(url);
       });
 
       clearIdeas?.addEventListener("click", async () => {
