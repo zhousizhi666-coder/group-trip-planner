@@ -63,6 +63,8 @@ function createDefaultState() {
   return {
     ideas: [],
     generatedTrip: null,
+    versions: [],
+    activeVersionId: null,
     updatedAt: new Date().toISOString()
   };
 }
@@ -75,7 +77,9 @@ async function readState() {
       ...createDefaultState(),
       ...state,
       ideas: Array.isArray(state.ideas) ? state.ideas : [],
-      generatedTrip: state.generatedTrip || null
+      generatedTrip: state.generatedTrip || null,
+      versions: Array.isArray(state.versions) ? state.versions : [],
+      activeVersionId: state.activeVersionId || null
     };
   } catch {
     return createDefaultState();
@@ -120,14 +124,17 @@ function buildMessages(payload) {
     {
       role: "system",
       content: [
-        "你是一个严谨的澳洲旅行规划助手。",
+        "你是一个严谨的旅行计划 Agent，不是简单文案生成器。",
         "必须用中文回答。",
+        "你要按 Agent 工作流完成：1) 理解硬约束；2) 判断同行建议的优先级和冲突；3) 更新行程；4) 自检日期、城市顺序、住宿偏好和交通时间；5) 给出下一步人工核验事项。",
         "必须优先保证往返日期、城市顺序、航班/交通时间锚点不被随意改动。",
         "用户是三人同行，其中一对情侣，住宿偏好是一套房内两个真实卧室。",
         "输出要具体到每个城市的上午、下午、晚上，并说明采纳/不采纳同行建议的原因。",
         "如果建议会破坏硬约束，明确指出冲突，并给替代方案。",
         "只返回 JSON，不要返回 Markdown，不要使用代码块。",
-        "JSON 格式必须是：{ summary: string, changes: string[], updatedPlaces: Place[] }。",
+        "JSON 格式必须是：{ summary: string, agentReport: AgentReport, changes: string[], updatedPlaces: Place[] }。",
+        "AgentReport 字段必须包含 adoptedIdeas, rejectedIdeas, conflicts, hardConstraintCheck, nextChecks。",
+        "adoptedIdeas/rejectedIdeas/conflicts/hardConstraintCheck/nextChecks 都是字符串数组。",
         "Place 字段必须包含 id, name, dates, thesis, hotels, transport, advice, days。",
         "hotels 是二维数组，每项为 [名称, 建议]。",
         "transport 和 advice 是字符串数组。",
@@ -145,6 +152,41 @@ function buildMessages(payload) {
       }, null, 2)
     }
   ];
+}
+
+function normalizeStringList(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map(item => String(item || "").trim()).filter(Boolean);
+}
+
+function normalizeGeneratedTrip(plan) {
+  if (!plan || typeof plan !== "object") return null;
+  const agentReport = plan.agentReport && typeof plan.agentReport === "object" ? plan.agentReport : {};
+  return {
+    summary: String(plan.summary || "已根据大家的建议生成新版行程。"),
+    changes: normalizeStringList(plan.changes),
+    agentReport: {
+      adoptedIdeas: normalizeStringList(agentReport.adoptedIdeas),
+      rejectedIdeas: normalizeStringList(agentReport.rejectedIdeas),
+      conflicts: normalizeStringList(agentReport.conflicts),
+      hardConstraintCheck: normalizeStringList(agentReport.hardConstraintCheck),
+      nextChecks: normalizeStringList(agentReport.nextChecks)
+    },
+    updatedPlaces: Array.isArray(plan.updatedPlaces) ? plan.updatedPlaces : []
+  };
+}
+
+function createVersionRecord(plan) {
+  const createdAt = new Date().toISOString();
+  return {
+    id: `version-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    title: `Agent 版本 ${new Date(createdAt).toLocaleString("zh-CN", { hour12: false })}`,
+    createdAt,
+    summary: plan.summary,
+    changes: plan.changes,
+    agentReport: plan.agentReport,
+    updatedTrip: plan
+  };
 }
 
 function parsePlanJson(content) {
@@ -264,7 +306,12 @@ const server = createServer(async (request, response) => {
 
   if (url.pathname === "/api/ideas" && request.method === "GET") {
     const state = await readState();
-    sendJson(response, 200, { ideas: state.ideas, generatedTrip: state.generatedTrip });
+    sendJson(response, 200, {
+      ideas: state.ideas,
+      generatedTrip: state.generatedTrip,
+      versions: state.versions,
+      activeVersionId: state.activeVersionId
+    });
     return;
   }
 
@@ -282,7 +329,13 @@ const server = createServer(async (request, response) => {
         ...state,
         ideas: [idea, ...state.ideas]
       });
-      sendJson(response, 200, { idea, ideas: nextState.ideas, generatedTrip: nextState.generatedTrip });
+      sendJson(response, 200, {
+        idea,
+        ideas: nextState.ideas,
+        generatedTrip: nextState.generatedTrip,
+        versions: nextState.versions,
+        activeVersionId: nextState.activeVersionId
+      });
     } catch (error) {
       sendJson(response, 500, { error: error.message || "保存失败" });
     }
@@ -297,7 +350,12 @@ const server = createServer(async (request, response) => {
       ...state,
       ideas: nextIdeas
     });
-    sendJson(response, 200, { ideas: nextState.ideas, generatedTrip: nextState.generatedTrip });
+    sendJson(response, 200, {
+      ideas: nextState.ideas,
+      generatedTrip: nextState.generatedTrip,
+      versions: nextState.versions,
+      activeVersionId: nextState.activeVersionId
+    });
     return;
   }
 
@@ -305,9 +363,42 @@ const server = createServer(async (request, response) => {
     const state = await readState();
     const nextState = await writeState({
       ...state,
-      generatedTrip: null
+      generatedTrip: null,
+      activeVersionId: null
     });
     sendJson(response, 200, nextState);
+    return;
+  }
+
+  if (url.pathname === "/api/versions" && request.method === "GET") {
+    const state = await readState();
+    sendJson(response, 200, {
+      versions: state.versions,
+      generatedTrip: state.generatedTrip,
+      activeVersionId: state.activeVersionId
+    });
+    return;
+  }
+
+  if (url.pathname === "/api/restore-version" && request.method === "POST") {
+    try {
+      const body = await readBody(request);
+      const payload = body ? JSON.parse(body) : {};
+      const state = await readState();
+      const version = state.versions.find(item => item.id === payload.versionId);
+      if (!version?.updatedTrip) {
+        sendJson(response, 404, { error: "没有找到这个历史版本。" });
+        return;
+      }
+      const nextState = await writeState({
+        ...state,
+        generatedTrip: version.updatedTrip,
+        activeVersionId: version.id
+      });
+      sendJson(response, 200, nextState);
+    } catch (error) {
+      sendJson(response, 500, { error: error.message || "恢复版本失败" });
+    }
     return;
   }
 
@@ -321,14 +412,24 @@ const server = createServer(async (request, response) => {
         ideas: state.ideas
       };
       const result = await callArk(requestPayload);
-      const nextState = result.parsed
-        ? await writeState({ ...state, generatedTrip: result.parsed })
+      const normalizedTrip = normalizeGeneratedTrip(result.parsed);
+      const version = normalizedTrip ? createVersionRecord(normalizedTrip) : null;
+      const nextState = normalizedTrip
+        ? await writeState({
+            ...state,
+            generatedTrip: normalizedTrip,
+            versions: [version, ...state.versions].slice(0, 20),
+            activeVersionId: version.id
+          })
         : state;
       sendJson(response, 200, {
         model,
         plan: result.content,
-        updatedTrip: result.parsed,
-        ideas: nextState.ideas
+        updatedTrip: normalizedTrip,
+        version,
+        ideas: nextState.ideas,
+        versions: nextState.versions,
+        activeVersionId: nextState.activeVersionId
       });
     } catch (error) {
       sendJson(response, error.status || 500, {

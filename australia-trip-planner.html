@@ -922,6 +922,57 @@
       white-space: pre-wrap;
     }
 
+    .agent-result {
+      display: grid;
+      gap: 12px;
+      white-space: normal;
+    }
+
+    .agent-result h5 {
+      margin: 0;
+      font-size: 14px;
+      color: var(--ink);
+    }
+
+    .agent-result p {
+      margin: 0;
+      color: #35424b;
+      font-size: 13px;
+    }
+
+    .agent-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .agent-check {
+      border: 1px solid #e4e9ed;
+      border-radius: 8px;
+      padding: 10px;
+      background: #fff;
+      display: grid;
+      gap: 6px;
+    }
+
+    .agent-check b {
+      font-size: 12px;
+      color: var(--accent-3);
+    }
+
+    .agent-check ul {
+      margin: 0;
+      padding-left: 17px;
+      display: grid;
+      gap: 4px;
+    }
+
+    .agent-check li {
+      color: #35424b;
+      font-size: 12px;
+      margin: 0;
+    }
+
     .status-line {
       min-height: 20px;
       color: var(--muted);
@@ -984,6 +1035,7 @@
       .slot-grid,
       .tool-grid,
       .idea-layout,
+      .agent-grid,
       .field-grid,
       .impact-grid,
       .route-flow,
@@ -1206,11 +1258,15 @@
     const workspaceBodyEl = document.getElementById("workspaceBody");
     const ideaStorageKey = "australia-trip-ideas-v1";
     const generatedTripStorageKey = "australia-trip-generated-v1";
+    const tripVersionsStorageKey = "australia-trip-versions-v1";
+    const activeVersionIdStorageKey = "australia-trip-active-version-v1";
     const tripBasicsStorageKey = "group-trip-basics-v1";
     const activeTripTemplateStorageKey = "group-trip-active-template-v1";
     const originalPlaces = JSON.parse(JSON.stringify(places));
     let sharedIdeas = readLocalIdeas();
     let sharedGeneratedTrip = readLocalGeneratedTrip();
+    let sharedVersions = readLocalVersions();
+    let activeVersionId = localStorage.getItem(activeVersionIdStorageKey) || "";
     let activeWorkspaceTab = "overview";
     let activeTripTemplate = localStorage.getItem(activeTripTemplateStorageKey) || "australia";
     let activePlaceId = "perth";
@@ -1289,6 +1345,14 @@
       }
     }
 
+    function readLocalVersions() {
+      try {
+        return JSON.parse(localStorage.getItem(tripVersionsStorageKey) || "[]");
+      } catch {
+        return [];
+      }
+    }
+
     function getTripBasics() {
       const defaults = tripTemplates[activeTripTemplate] || tripTemplates.australia;
       try {
@@ -1343,6 +1407,26 @@
     function clearGeneratedTrip() {
       sharedGeneratedTrip = null;
       localStorage.removeItem(generatedTripStorageKey);
+      activeVersionId = "";
+      localStorage.removeItem(activeVersionIdStorageKey);
+    }
+
+    function getVersions() {
+      return sharedVersions;
+    }
+
+    function saveVersions(versions) {
+      sharedVersions = Array.isArray(versions) ? versions : [];
+      localStorage.setItem(tripVersionsStorageKey, JSON.stringify(sharedVersions));
+    }
+
+    function saveActiveVersionId(versionId) {
+      activeVersionId = versionId || "";
+      if (activeVersionId) {
+        localStorage.setItem(activeVersionIdStorageKey, activeVersionId);
+      } else {
+        localStorage.removeItem(activeVersionIdStorageKey);
+      }
     }
 
     function getTripPlaceIds() {
@@ -1567,6 +1651,8 @@
       try {
         const state = await fetchJson("/api/state");
         saveIdeas(state.ideas || []);
+        saveVersions(state.versions || []);
+        saveActiveVersionId(state.activeVersionId || "");
         if (state.generatedTrip) {
           saveGeneratedTrip(state.generatedTrip);
           applyGeneratedPlaces(state.generatedTrip.updatedPlaces);
@@ -1579,7 +1665,7 @@
         const output = document.getElementById("aiOutput");
         if (output) {
           const generated = getGeneratedTrip();
-          output.textContent = generated ? formatGeneratedSummary(generated) : "还没有生成新版。先收集建议，再点击“生成新版计划”。";
+          output.innerHTML = generated ? renderAgentResult(generated) : "还没有生成新版。先收集建议，再点击“生成新版计划”。";
         }
       } catch {
         renderIdeaList();
@@ -1873,7 +1959,7 @@
           <div class="block">
             <h4>生成结果</h4>
             <div class="status-line" id="aiStatus"></div>
-            <div class="ai-output" id="aiOutput">${generated ? escapeHTML(formatGeneratedSummary(generated)) : "还没有生成新版。先收集建议，再点击“生成新版计划”。"}</div>
+            <div class="ai-output" id="aiOutput">${generated ? renderAgentResult(generated) : "还没有生成新版。先收集建议，再点击“生成新版计划”。"}</div>
           </div>
         </div>
 
@@ -1896,6 +1982,7 @@
 
     function renderVersionsTab() {
       const generated = getGeneratedTrip();
+      const versions = getVersions();
       workspaceBodyEl.innerHTML = `
         <div class="version-list">
           <article class="version-card">
@@ -1906,8 +1993,14 @@
             </div>
           </article>
           <article class="version-card">
-            <strong>当前协作版本：${generated ? "AI 生成版" : "尚未生成新版"}</strong>
+            <strong>当前协作版本：${generated ? "旅行计划 Agent 生成版" : "尚未生成新版"}</strong>
             <p class="tagline">${generated ? escapeHTML(generated.summary || "已根据大家建议生成新版计划。") : "提交大家的想法后，可以在“大家的想法”里生成新版计划。"}</p>
+            ${generated?.agentReport ? `
+              <div class="agent-grid">
+                <div class="agent-check"><b>硬约束检查</b><ul>${(generated.agentReport.hardConstraintCheck || []).map(item => `<li>${escapeHTML(item)}</li>`).join("") || "<li>等待 Agent 生成后展示。</li>"}</ul></div>
+                <div class="agent-check"><b>下一步核验</b><ul>${(generated.agentReport.nextChecks || []).map(item => `<li>${escapeHTML(item)}</li>`).join("") || "<li>等待 Agent 生成后展示。</li>"}</ul></div>
+              </div>
+            ` : ""}
             ${Array.isArray(generated?.changes) && generated.changes.length ? `
               <ul class="list">${generated.changes.map(change => `<li>${escapeHTML(change)}</li>`).join("")}</ul>
             ` : ""}
@@ -1916,18 +2009,60 @@
               <button class="action-btn secondary" type="button" id="goOverviewFromVersions">看路线总览</button>
             </div>
           </article>
+          ${versions.length ? versions.map(version => `
+            <article class="version-card">
+              <strong>${escapeHTML(version.title || "Agent 历史版本")}${version.id === activeVersionId ? "（当前）" : ""}</strong>
+              <p class="tagline">${escapeHTML(version.summary || "历史生成版本")}</p>
+              ${Array.isArray(version.changes) && version.changes.length ? `
+                <ul class="list">${version.changes.slice(0, 4).map(change => `<li>${escapeHTML(change)}</li>`).join("")}</ul>
+              ` : ""}
+              <div class="button-row">
+                <button class="action-btn secondary" type="button" data-restore-version="${escapeHTML(version.id)}">恢复这个版本</button>
+              </div>
+            </article>
+          `).join("") : `
+            <article class="version-card">
+              <strong>还没有历史 Agent 版本</strong>
+              <p class="tagline">每次点击“生成新版计划”后，这里会自动保存一个可恢复版本。</p>
+            </article>
+          `}
         </div>
       `;
 
       document.getElementById("restoreFromVersions")?.addEventListener("click", async () => {
         try {
-          await fetchJson("/api/reset-plan", { method: "POST" });
+          const state = await fetchJson("/api/reset-plan", { method: "POST" });
+          saveVersions(state.versions || getVersions());
+          saveActiveVersionId("");
         } catch {
           // Local fallback keeps the page usable when opened as a file.
         }
         restoreOriginalPlaces();
         refreshNavForCurrentPlace();
         renderWorkspaceTab("versions");
+      });
+      workspaceBodyEl.querySelectorAll("[data-restore-version]").forEach(button => {
+        button.addEventListener("click", async () => {
+          const versionId = button.dataset.restoreVersion;
+          const localVersion = getVersions().find(version => version.id === versionId);
+          try {
+            const state = await fetchJson("/api/restore-version", {
+              method: "POST",
+              body: JSON.stringify({ versionId })
+            });
+            saveGeneratedTrip(state.generatedTrip);
+            saveVersions(state.versions || getVersions());
+            saveActiveVersionId(state.activeVersionId || versionId);
+            applyGeneratedPlaces(state.generatedTrip?.updatedPlaces);
+          } catch {
+            if (!localVersion?.updatedTrip) return;
+            saveGeneratedTrip(localVersion.updatedTrip);
+            saveActiveVersionId(versionId);
+            applyGeneratedPlaces(localVersion.updatedTrip.updatedPlaces);
+          }
+          refreshNavForCurrentPlace();
+          renderWorkspaceTab("versions");
+        });
       });
       document.getElementById("goIdeasFromVersions")?.addEventListener("click", () => renderWorkspaceTab("ideas"));
       document.getElementById("goOverviewFromVersions")?.addEventListener("click", () => renderWorkspaceTab("overview"));
@@ -1987,6 +2122,20 @@
     function formatGeneratedSummary(plan) {
       const lines = [];
       if (plan?.summary) lines.push(plan.summary);
+      const report = plan?.agentReport || {};
+      const reportItems = [
+        ["采纳建议", report.adoptedIdeas],
+        ["冲突/未采纳", [...(report.rejectedIdeas || []), ...(report.conflicts || [])]],
+        ["硬约束检查", report.hardConstraintCheck],
+        ["下一步核验", report.nextChecks]
+      ];
+      reportItems.forEach(([title, items]) => {
+        if (Array.isArray(items) && items.length) {
+          lines.push("");
+          lines.push(`${title}：`);
+          items.forEach(item => lines.push(`- ${item}`));
+        }
+      });
       if (Array.isArray(plan?.changes) && plan.changes.length) {
         lines.push("");
         lines.push("本次调整：");
@@ -1995,6 +2144,41 @@
       lines.push("");
       lines.push("行程总览和下方城市模块已按新版计划更新。可点击总览里的城市节点查看。");
       return lines.join("\n");
+    }
+
+    function renderAgentResult(plan) {
+      if (!plan) return "还没有生成新版。先收集建议，再点击“生成新版计划”。";
+      const report = plan.agentReport || {};
+      const sections = [
+        ["采纳建议", report.adoptedIdeas, "本次明确吸收进新版行程的同行想法。"],
+        ["冲突/未采纳", [...(report.rejectedIdeas || []), ...(report.conflicts || [])], "会破坏硬约束、预算或节奏的建议会放在这里。"],
+        ["硬约束检查", report.hardConstraintCheck, "日期、城市顺序、交通时间和住宿偏好的自检结果。"],
+        ["下一步核验", report.nextChecks, "订房、航班、价格和天气等仍需人工确认的点。"]
+      ];
+      return `
+        <div class="agent-result">
+          <div>
+            <h5>旅行计划 Agent 已生成新版</h5>
+            <p>${escapeHTML(plan.summary || "已根据大家的建议生成新版行程。")}</p>
+          </div>
+          <div class="agent-grid">
+            ${sections.map(([title, items, emptyText]) => `
+              <div class="agent-check">
+                <b>${escapeHTML(title)}</b>
+                ${Array.isArray(items) && items.length
+                  ? `<ul>${items.map(item => `<li>${escapeHTML(item)}</li>`).join("")}</ul>`
+                  : `<p>${escapeHTML(emptyText)}</p>`}
+              </div>
+            `).join("")}
+          </div>
+          ${Array.isArray(plan.changes) && plan.changes.length ? `
+            <div class="agent-check">
+              <b>本次行程调整</b>
+              <ul>${plan.changes.map(change => `<li>${escapeHTML(change)}</li>`).join("")}</ul>
+            </div>
+          ` : ""}
+        </div>
+      `;
     }
 
     function renderIdeaList() {
@@ -2035,6 +2219,8 @@
               method: "DELETE"
             });
             saveIdeas(data.ideas || []);
+            saveVersions(data.versions || getVersions());
+            saveActiveVersionId(data.activeVersionId || activeVersionId);
           } catch {
             const nextIdeas = getIdeas().filter(idea => idea.id !== button.dataset.deleteIdea);
             saveIdeas(nextIdeas);
@@ -2085,6 +2271,8 @@
             body: JSON.stringify(idea)
           });
           saveIdeas(data.ideas || [idea, ...getIdeas()]);
+          saveVersions(data.versions || getVersions());
+          saveActiveVersionId(data.activeVersionId || activeVersionId);
         } catch {
           saveIdeas([idea, ...getIdeas()]);
         }
@@ -2135,12 +2323,14 @@
           }
           saveGeneratedTrip(data.updatedTrip);
           saveIdeas(data.ideas || getIdeas());
+          saveVersions(data.versions || (data.version ? [data.version, ...getVersions()] : getVersions()));
+          saveActiveVersionId(data.activeVersionId || data.version?.id || "");
           refreshNavForCurrentPlace();
           if (activeWorkspaceTab === "overview") {
             renderWorkspaceTab("overview");
           }
           status.textContent = "已生成并更新行程总览和城市模块。";
-          output.textContent = formatGeneratedSummary(data.updatedTrip);
+          output.innerHTML = renderAgentResult(data.updatedTrip);
         } catch (error) {
           status.textContent = "调用失败。";
           const message = error instanceof TypeError && /fetch/i.test(error.message)
@@ -2154,7 +2344,9 @@
 
       restorePlan?.addEventListener("click", async () => {
         try {
-          await fetchJson("/api/reset-plan", { method: "POST" });
+          const state = await fetchJson("/api/reset-plan", { method: "POST" });
+          saveVersions(state.versions || getVersions());
+          saveActiveVersionId("");
         } catch {
           // Local fallback keeps the page usable when opened as a file.
         }
@@ -2164,7 +2356,7 @@
         const status = document.getElementById("aiStatus");
         const output = document.getElementById("aiOutput");
         status.textContent = "已恢复原计划。";
-        output.textContent = "已恢复到初始行程版本。";
+        output.innerHTML = "已恢复到初始行程版本。已收集建议仍然保留，可以继续生成新版。";
       });
 
       clearIdeas?.addEventListener("click", async () => {
@@ -2172,6 +2364,8 @@
         try {
           const data = await fetchJson("/api/ideas", { method: "DELETE" });
           saveIdeas(data.ideas || []);
+          saveVersions(data.versions || getVersions());
+          saveActiveVersionId(data.activeVersionId || activeVersionId);
         } catch {
           saveIdeas([]);
         }
