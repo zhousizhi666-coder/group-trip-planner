@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: group-trip-planner
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: ARK_MODEL
+        value: ep-m-20260604202245-c2cq2
+      - key: VOLCENGINE_API_KEY
+        sync: false

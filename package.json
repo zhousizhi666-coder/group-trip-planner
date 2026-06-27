@@ -1,0 +1,12 @@
+{
+  "name": "group-trip-planner",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node trip-ai-server.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

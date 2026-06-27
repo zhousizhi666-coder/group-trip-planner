@@ -1,0 +1,2300 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>旅行共创行程规划</title>
+  <style>
+    :root {
+      --ink: #172026;
+      --muted: #65717a;
+      --line: #d9e0e6;
+      --paper: #f5f7f8;
+      --panel: #ffffff;
+      --accent: #0b7a75;
+      --accent-2: #b3452d;
+      --accent-3: #2f5d8c;
+      --soft: #e8f2ef;
+      --warning: #fff0d9;
+      --shadow: 0 18px 45px rgba(23, 32, 38, 0.09);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      line-height: 1.5;
+      letter-spacing: 0;
+    }
+
+    button,
+    input,
+    select,
+    textarea {
+      font: inherit;
+    }
+
+    .shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 320px minmax(0, 1fr);
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow: auto;
+      padding: 22px;
+      background: #ffffff;
+      border-right: 1px solid var(--line);
+    }
+
+    .brand {
+      display: grid;
+      gap: 8px;
+      margin-bottom: 18px;
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 24px;
+      line-height: 1.15;
+    }
+
+    .brand p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .trip-switcher {
+      display: grid;
+      gap: 8px;
+      margin: 18px 0;
+    }
+
+    .switcher-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .trip-card {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 11px;
+      background: #fbfcfc;
+      color: var(--ink);
+      cursor: pointer;
+      text-align: left;
+      display: grid;
+      gap: 7px;
+      transition: border-color .18s ease, background .18s ease, transform .18s ease;
+    }
+
+    .trip-card:hover,
+    .trip-card.active {
+      border-color: var(--accent);
+      background: var(--soft);
+      transform: translateY(-1px);
+    }
+
+    .trip-card strong {
+      display: block;
+      font-size: 15px;
+      line-height: 1.2;
+    }
+
+    .trip-card span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .trip-card-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .trip-card-meta small {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 3px 7px;
+      background: #fff;
+      color: #34414a;
+      font-size: 11px;
+    }
+
+    .nav {
+      display: none;
+    }
+
+    .nav-legacy {
+      display: grid;
+      gap: 8px;
+      margin-top: 18px;
+    }
+
+    .nav-legacy button {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      border-radius: 8px;
+      padding: 12px;
+      cursor: pointer;
+      text-align: left;
+      display: grid;
+      grid-template-columns: 46px 1fr;
+      align-items: center;
+      gap: 12px;
+      transition: border-color .18s ease, background .18s ease, transform .18s ease;
+    }
+
+    .nav-legacy button:hover,
+    .nav-legacy button.active {
+      border-color: var(--accent);
+      background: var(--soft);
+      transform: translateY(-1px);
+    }
+
+    .nav-legacy img {
+      width: 46px;
+      height: 46px;
+      border-radius: 8px;
+      object-fit: cover;
+      background: #d9e0e6;
+    }
+
+    .nav-legacy b {
+      display: block;
+      font-size: 14px;
+    }
+
+    .nav-legacy small {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 2px;
+    }
+
+    .content {
+      min-width: 0;
+      padding: 28px;
+    }
+
+    .overview {
+      margin-bottom: 20px;
+    }
+
+    .summary-panel,
+    .workspace-panel,
+    .budget-panel,
+    .detail {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+    }
+
+    .workspace-panel {
+      overflow: hidden;
+    }
+
+    .workspace-head {
+      padding: 20px 22px 0;
+      display: grid;
+      gap: 14px;
+    }
+
+    .workspace-title {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .workspace-title h2 {
+      margin: 0;
+      font-size: 24px;
+      line-height: 1.15;
+    }
+
+    .workspace-title p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .workspace-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 10px;
+    }
+
+    .workspace-tabs button {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: #34414a;
+      padding: 9px 12px;
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 13px;
+    }
+
+    .workspace-tabs button.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    .workspace-body {
+      padding: 20px 22px 22px;
+    }
+
+    .workspace-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.55fr) minmax(320px, .75fr);
+      gap: 16px;
+      align-items: start;
+    }
+
+    .route-dashboard {
+      display: grid;
+      gap: 12px;
+    }
+
+    .route-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: start;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    .route-header h2 {
+      margin: 0;
+      font-size: 26px;
+      line-height: 1.15;
+    }
+
+    .route-header p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      max-width: 68ch;
+    }
+
+    .metric-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .metric {
+      border: 1px solid #e4e9ed;
+      border-radius: 8px;
+      padding: 10px;
+      background: #fbfcfc;
+      min-height: 74px;
+      display: grid;
+      align-content: center;
+      gap: 2px;
+    }
+
+    .metric strong {
+      font-size: 18px;
+      line-height: 1.1;
+    }
+
+    .metric span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .overview-insights {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .overview-insight {
+      border: 1px solid #e4e9ed;
+      border-radius: 8px;
+      padding: 11px;
+      background: #fff;
+      display: grid;
+      gap: 6px;
+      min-height: 104px;
+    }
+
+    .overview-insight b {
+      color: var(--accent-3);
+      font-size: 13px;
+    }
+
+    .overview-insight p {
+      margin: 0;
+      color: #35424b;
+      font-size: 12px;
+    }
+
+    .trip-form {
+      display: grid;
+      gap: 12px;
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .chip {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 6px 10px;
+      background: #fbfcfc;
+      color: #34414a;
+      font-size: 12px;
+    }
+
+    .version-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .version-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fbfcfc;
+      display: grid;
+      gap: 7px;
+    }
+
+    .summary-panel {
+      overflow: hidden;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 1fr;
+    }
+
+    .hero-text {
+      padding: 20px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .hero-text h2 {
+      margin: 0;
+      font-size: 26px;
+      line-height: 1.15;
+    }
+
+    .hero-text p {
+      margin: 0;
+      color: var(--muted);
+      max-width: 56ch;
+    }
+
+    .route-flow {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      align-items: stretch;
+    }
+
+    .route-stop {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      min-height: 96px;
+      background: #fbfcfc;
+      position: relative;
+      display: grid;
+      align-content: center;
+      gap: 5px;
+      word-break: keep-all;
+      color: var(--ink);
+      cursor: pointer;
+      text-align: left;
+      font: inherit;
+      width: 100%;
+      transition: border-color .18s ease, background .18s ease, transform .18s ease;
+    }
+
+    .route-stop:hover,
+    .route-stop.active {
+      border-color: var(--accent);
+      background: var(--soft);
+      transform: translateY(-1px);
+    }
+
+    .route-stop:not(:last-child)::after {
+      content: "→";
+      position: absolute;
+      right: -15px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 20px;
+      height: 20px;
+      display: grid;
+      place-items: center;
+      border-radius: 999px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 700;
+      z-index: 2;
+    }
+
+    .route-stop strong {
+      font-size: 18px;
+      line-height: 1.15;
+      white-space: nowrap;
+    }
+
+    .route-stop span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .route-stop em {
+      color: var(--accent);
+      font-style: normal;
+      font-weight: 700;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .route-stop .route-badge {
+      width: fit-content;
+      border-radius: 999px;
+      padding: 3px 7px;
+      background: #fff0d9;
+      color: #815313;
+      border: 1px solid #f1d39b;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .generated-summary {
+      border: 1px solid #bddbd6;
+      border-left: 4px solid var(--accent);
+      border-radius: 8px;
+      padding: 12px;
+      background: #f4fbf9;
+      display: grid;
+      gap: 8px;
+    }
+
+    .generated-summary strong {
+      font-size: 14px;
+    }
+
+    .generated-summary p,
+    .generated-summary li {
+      margin: 0;
+      color: #35424b;
+      font-size: 12px;
+    }
+
+    .generated-summary ul {
+      margin: 0;
+      padding-left: 18px;
+      display: grid;
+      gap: 4px;
+    }
+
+    .hero-img {
+      min-height: 260px;
+      background-image: url("https://images.unsplash.com/photo-1523482580672-f109ba8cb9be?auto=format&fit=crop&w=1200&q=80");
+      background-size: cover;
+      background-position: center;
+    }
+
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .pill {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 12px;
+      background: #fff;
+      color: #34414a;
+      white-space: nowrap;
+    }
+
+    .budget-panel {
+      padding: 18px;
+      display: grid;
+      gap: 12px;
+      align-content: start;
+    }
+
+    .budget-panel h3,
+    .detail h3,
+    .block h4 {
+      margin: 0;
+    }
+
+    .budget-row {
+      display: grid;
+      grid-template-columns: 86px 1fr 72px;
+      gap: 10px;
+      align-items: center;
+      font-size: 13px;
+    }
+
+    .bar {
+      height: 9px;
+      border-radius: 999px;
+      background: #e5eaee;
+      overflow: hidden;
+    }
+
+    .bar span {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: var(--accent);
+    }
+
+    .detail {
+      overflow: hidden;
+    }
+
+    .place-head {
+      min-height: 260px;
+      padding: 24px;
+      display: grid;
+      align-content: end;
+      background-size: cover;
+      background-position: center;
+      color: #fff;
+      position: relative;
+    }
+
+    .place-head::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg, rgba(0,0,0,.15), rgba(0,0,0,.72));
+    }
+
+    .place-head > * {
+      position: relative;
+      z-index: 1;
+    }
+
+    .place-head h2 {
+      margin: 0 0 8px;
+      font-size: 34px;
+      line-height: 1.1;
+      text-shadow: 0 2px 10px rgba(0,0,0,.25);
+    }
+
+    .place-head p {
+      margin: 0;
+      max-width: 68ch;
+      color: rgba(255,255,255,.9);
+    }
+
+    .detail-body {
+      padding: 22px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 340px;
+      gap: 18px;
+    }
+
+    .main-col,
+    .side-col {
+      display: grid;
+      gap: 14px;
+      align-content: start;
+    }
+
+    .block {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      background: #fff;
+    }
+
+    .block h4 {
+      font-size: 16px;
+      margin-bottom: 10px;
+    }
+
+    .timeline {
+      display: grid;
+      gap: 10px;
+    }
+
+    .day {
+      border-left: 3px solid var(--accent);
+      padding-left: 12px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .day-title {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+      font-weight: 700;
+    }
+
+    .slot-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .slot {
+      min-height: 112px;
+      border: 1px solid #e4e9ed;
+      border-radius: 8px;
+      padding: 10px;
+      background: #fbfcfc;
+    }
+
+    .slot b {
+      display: block;
+      color: var(--accent-3);
+      margin-bottom: 6px;
+      font-size: 13px;
+    }
+
+    .slot p,
+    .block p,
+    .block li {
+      color: #35424b;
+      font-size: 13px;
+      margin: 0;
+    }
+
+    .list {
+      margin: 0;
+      padding-left: 18px;
+      display: grid;
+      gap: 7px;
+    }
+
+    .hotel {
+      display: grid;
+      gap: 6px;
+      padding: 10px;
+      border: 1px solid #e4e9ed;
+      border-radius: 8px;
+      background: #fbfcfc;
+    }
+
+    .hotel strong {
+      font-size: 14px;
+    }
+
+    .tagline {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .note {
+      border-left: 3px solid var(--accent-2);
+      background: #fff7f3;
+      padding: 10px 12px;
+      border-radius: 8px;
+      color: #553125;
+      font-size: 13px;
+    }
+
+    .tool-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .tool {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      background: #fff;
+      min-height: 138px;
+      display: grid;
+      gap: 7px;
+      align-content: start;
+    }
+
+    .tool a {
+      color: var(--accent);
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    .tool a:hover {
+      text-decoration: underline;
+    }
+
+    .idea-layout {
+      display: grid;
+      grid-template-columns: minmax(0, .95fr) minmax(0, 1.05fr);
+      gap: 14px;
+      align-items: start;
+    }
+
+    .idea-form {
+      display: grid;
+      gap: 12px;
+    }
+
+    .field-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    label {
+      display: grid;
+      gap: 6px;
+      color: #34414a;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    input,
+    select,
+    textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px 11px;
+      color: var(--ink);
+      background: #fff;
+      outline: none;
+    }
+
+    input:focus,
+    select:focus,
+    textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(11, 122, 117, .12);
+    }
+
+    textarea {
+      min-height: 128px;
+      resize: vertical;
+    }
+
+    .button-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .action-btn {
+      border: 1px solid var(--accent);
+      border-radius: 8px;
+      padding: 10px 12px;
+      background: var(--accent);
+      color: #fff;
+      cursor: pointer;
+      font-weight: 700;
+    }
+
+    .action-btn.secondary {
+      background: #fff;
+      color: var(--accent);
+    }
+
+    .idea-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .idea-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fbfcfc;
+      display: grid;
+      gap: 9px;
+    }
+
+    .idea-meta {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .idea-card p {
+      margin: 0;
+      color: #35424b;
+      font-size: 13px;
+    }
+
+    .impact-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 7px;
+    }
+
+    .impact {
+      border: 1px solid #e4e9ed;
+      border-radius: 8px;
+      padding: 8px;
+      background: #fff;
+      font-size: 12px;
+      color: #34414a;
+    }
+
+    .export-box {
+      width: 100%;
+      min-height: 180px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+    }
+
+    .ai-output {
+      min-height: 170px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      background: #fbfcfc;
+      color: #26333b;
+      font-size: 13px;
+      white-space: pre-wrap;
+    }
+
+    .status-line {
+      min-height: 20px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .grade {
+      display: inline-flex;
+      width: fit-content;
+      border-radius: 999px;
+      padding: 4px 8px;
+      font-size: 12px;
+      background: var(--soft);
+      color: var(--accent);
+      border: 1px solid #bddbd6;
+    }
+
+    .grade.warn {
+      background: var(--warning);
+      color: #815313;
+      border-color: #f1d39b;
+    }
+
+    .grade.bad {
+      background: #f8e5e1;
+      color: #93351f;
+      border-color: #ebbeb4;
+    }
+
+    @media (max-width: 1060px) {
+      .shell {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        position: static;
+        height: auto;
+      }
+
+      .nav-legacy {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .overview,
+      .summary-panel,
+      .workspace-grid,
+      .detail-body {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .content,
+      .sidebar {
+        padding: 14px;
+      }
+
+      .nav-legacy,
+      .trip-switcher,
+      .slot-grid,
+      .tool-grid,
+      .idea-layout,
+      .field-grid,
+      .impact-grid,
+      .route-flow,
+      .metric-strip,
+      .overview-insights,
+      .workspace-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .route-stop:not(:last-child)::after {
+        content: "↓";
+        right: auto;
+        left: 18px;
+        top: auto;
+        bottom: -15px;
+        transform: none;
+      }
+
+      .place-head h2,
+      .hero-text h2 {
+        font-size: 26px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <h1>旅行共创行程工作台</h1>
+        <p>先创建基础约束，再按目的地拆开看住宿、游玩、航班和关键取舍。</p>
+      </div>
+
+      <div class="trip-switcher">
+        <div class="switcher-title">
+          <span>旅程模块</span>
+          <span>可复用模板</span>
+        </div>
+        <button class="trip-card active" type="button" data-trip-template="australia">
+          <strong>澳洲 10 晚示例</strong>
+          <span>Perth / Melbourne / Whitsundays / Sydney</span>
+          <span class="trip-card-meta"><small>国家旅行</small><small>10 晚</small><small>多人共创</small></span>
+        </button>
+        <button class="trip-card" type="button" data-trip-template="new">
+          <strong>新建一段旅行</strong>
+          <span>从目的地、时间、预算和必去点开始</span>
+          <span class="trip-card-meta"><small>空白</small><small>可生成初版</small></span>
+        </button>
+        <button class="trip-card" type="button" data-trip-template="city">
+          <strong>城市短途模板</strong>
+          <span>适合 2-4 晚城市深度游</span>
+          <span class="trip-card-meta"><small>城市</small><small>低换宿</small></span>
+        </button>
+        <button class="trip-card" type="button" data-trip-template="island">
+          <strong>海岛度假模板</strong>
+          <span>适合酒店、出海、休息日取舍</span>
+          <span class="trip-card-meta"><small>度假</small><small>预算弹性</small></span>
+        </button>
+      </div>
+    </aside>
+
+    <main class="content">
+      <section class="overview">
+        <div class="workspace-panel">
+          <div class="workspace-head">
+            <div class="workspace-title">
+              <div>
+                <h2>旅行共创工作台</h2>
+                <p>先输入基础约束生成初版，再收集大家想法，迭代出共识版行程。</p>
+              </div>
+              <div class="chips">
+                <span class="chip">当前示例：澳洲 10 晚</span>
+                <span class="chip">多人建议共享</span>
+                <span class="chip">可生成新版计划</span>
+              </div>
+            </div>
+            <div class="workspace-tabs" id="workspaceTabs" aria-label="旅行共创流程"></div>
+          </div>
+          <div class="workspace-body" id="workspaceBody"></div>
+        </div>
+      </section>
+
+      <section class="detail" id="detail"></section>
+    </main>
+  </div>
+
+  <script>
+    const places = [
+      {
+        id: "perth",
+        name: "珀斯",
+        short: "9/26、9/28 两晚 + 粉红湖两日游",
+        dates: "9月26日 - 9月29日早",
+        image: "https://upload.wikimedia.org/wikipedia/commons/b/bd/Perth_skyline_2024.jpg",
+        thumb: "https://upload.wikimedia.org/wikipedia/commons/b/bd/Perth_skyline_2024.jpg",
+        thesis: "珀斯的任务很明确：第一天直接去 Rottnest Island；第二、三天用携程两日游覆盖尖峰石阵 + Hutt Lagoon 粉红湖；9/28 晚上回到珀斯睡一晚，9/29 早上飞墨尔本。",
+        hotels: [
+          ["Adina Apartment Hotel Perth / Barrack Plaza", "优先看 2 Bedroom Apartment，位置适合 9/26 抵达和 9/28 回城后休整；预算目标 ¥1,300-1,700/晚。"],
+          ["188 Apartments", "可加入珀斯备选：Newcastle Street / Northbridge 一带，离市区集合点不远；更像预算友好型公寓，必须核验携程房型是否为真正 Two Bedroom Apartment。"],
+          ["All Suites Perth", "更偏预算稳定型，适合作为 Adina 涨价或无两卧房型时的备选；要确认不是一卧加沙发床。"]
+        ],
+        advice: [
+          "9/26 不建议安排高强度市区景点，早班机落地后直接 Rottnest 更顺。",
+          "9/27-28 直接跟你发的携程两日游逻辑走，中间 Geraldton 住宿由团包含。",
+          "9/28 回珀斯约 18:30，住机场附近意义不大，除非 9/29 航班特别早。"
+        ],
+        transport: [
+          "9/26 08:00 抵达 Perth，行李寄存后去 Fremantle / Hillarys 码头坐船。",
+          "9/27 08:00-08:20 珀斯市区酒店集合，两日游出发。",
+          "9/29 建议 PER -> MEL：JQ 975 09:40 -> 15:15，给墨尔本留半天。"
+        ],
+        days: [
+          ["9/26 周六｜Rottnest Island", "08:00 抵达珀斯，入境、取行李、寄存或先放酒店。", "坐船去 Rottnest Island，骑车/巴士看 quokka、The Basin、Pinky Beach。", "回珀斯，简单晚餐，早睡倒时差。"],
+          ["9/27 周日｜尖峰石阵两日游 D1", "08:00-08:20 市区集合；兰斯林白沙丘。", "尖峰石阵、龙虾小镇午餐、翡翠海滩/口渴岬。", "18:00 左右到 Geraldton，团内住宿，晚餐自理。"],
+          ["9/28 周一｜Hutt Lagoon 粉红湖 D2", "08:30 Geraldton 出发；10:00 左右 Hutt Lagoon 粉红湖。", "午餐后看怪树、Jurien Bay Jetty。", "18:30 左右回珀斯，住珀斯 CBD 或东珀斯。"],
+          ["9/29 周二｜飞墨尔本", "早上退房去机场。", "PER -> MEL，建议 09:40 起飞、15:15 抵达。", "墨尔本市区入住，轻量 city walk。"]
+        ]
+      },
+      {
+        id: "melbourne",
+        name: "墨尔本",
+        short: "2 晚，负责考拉/袋鼠/企鹅",
+        dates: "9月29日 - 10月1日早",
+        image: "https://images.unsplash.com/photo-1514395462725-fb4566210144?auto=format&fit=crop&w=1300&q=80",
+        thumb: "https://images.unsplash.com/photo-1514395462725-fb4566210144?auto=format&fit=crop&w=200&q=80",
+        thesis: "墨尔本被压缩到 2 晚后，不要贪大洋路。最优解是把动物体验集中到 Moonlit Sanctuary + Phillip Island：白天抱考拉/看袋鼠，晚上看企鹅归巢。",
+        hotels: [
+          ["Pegasus Apart'Hotel", "预算和位置比较均衡，优先查 Two Bedroom Apartment；对早起去机场和市区吃饭都方便。"],
+          ["Melbourne City Apartment Hotel", "更像服务公寓，适合三人住一套；注意确认两间独立卧室和取消政策。"]
+        ],
+        advice: [
+          "不要把大洋路塞进这两晚，会牺牲睡眠和动物体验。",
+          "9/30 是抱考拉/看袋鼠的最佳窗口，也是全程最适合安排企鹅归巢的一天。",
+          "10/1 早班飞圣灵群岛，前一晚不要排太晚的酒吧或长距离回程。"
+        ],
+        transport: [
+          "9/29 PER -> MEL 抵达后直接住 CBD 或北 CBD。",
+          "9/30 建议包车或成熟一日游：Moonlit Sanctuary -> Phillip Island。",
+          "10/1 MEL -> PPP：JQ 832 07:40 -> 10:35。"
+        ],
+        days: [
+          ["9/29 周二｜抵达墨尔本", "珀斯飞墨尔本，预计下午 15:15 到。", "入住后走 State Library、Fitzroy/Collins St 或 Yarra River。", "市区晚餐，早点回去为第二天动物线留体力。"],
+          ["9/30 周三｜考拉袋鼠 + 企鹅", "Moonlit Sanctuary，优先预订 koala encounter。", "继续看袋鼠、袋熊等；下午去 Phillip Island。", "Penguin Parade，看完回墨尔本，预计较晚。"],
+          ["10/1 周四｜飞圣灵群岛", "清晨退房去机场。", "07:40 MEL 起飞，10:35 到 Proserpine PPP。", "抵达 Airlie Beach 后进入海岛度假节奏。"]
+        ]
+      },
+      {
+        id: "whitsundays",
+        name: "圣灵群岛",
+        short: "3 晚，度假核心",
+        dates: "10月1日 - 10月4日",
+        image: "https://images.unsplash.com/photo-1529108190281-9a4f620bc2d8?auto=format&fit=crop&w=1300&q=80",
+        thumb: "https://images.unsplash.com/photo-1529108190281-9a4f620bc2d8?auto=format&fit=crop&w=200&q=80",
+        thesis: "这段是全程体验密度最高的部分。预算内不强求岛上顶奢全包，优先 Airlie Beach 高品质两卧公寓/度假公寓，把钱留给 Whitehaven、Hill Inlet、外堡礁或心形礁飞行。",
+        hotels: [
+          ["Portside Whitsunday Luxury Holiday Apartments", "当前最推荐：两卧、海景、自带厨房，位置适合出海；目标约 ¥2,200-2,500/晚。"],
+          ["Mirage Whitsundays", "服务和度假感更强，预算会明显上升；如果其他城市订得便宜，可以升级。"],
+          ["The Boathouse Apartments", "码头位置方便，适合频繁出海；价格可能高于 Portside。"]
+        ],
+        advice: [
+          "圣灵群岛贵是正常的，但不要为了全包酒店牺牲两卧和交通便利。",
+          "10/2 放 Whitehaven + Hill Inlet，是全程最重要的海岛日。",
+          "10/3 根据预算二选一：外堡礁一日游更完整，心形礁飞行更标志性。"
+        ],
+        transport: [
+          "10/1 PPP 机场到 Airlie Beach 约 35-45 分钟，建议提前订接驳。",
+          "10/4 PPP -> SYD：JQ 839 17:50 -> 21:15，白天还能慢节奏收尾。",
+          "若出海行程受天气影响，10/3 要保留可替换选项。"
+        ],
+        days: [
+          ["10/1 周四｜抵达 Airlie Beach", "10:35 到 PPP，机场接驳去 Airlie Beach。", "入住 Portside/Mirage/Boathouse，采购、水边休息。", "Airlie Beach Lagoon 或码头日落，轻松晚餐。"],
+          ["10/2 周五｜Whitehaven + Hill Inlet", "出海去 Whitehaven Beach。", "Hill Inlet Lookout、白沙滩、浮潜或半日 sailing。", "回 Airlie Beach，晚餐选海鲜或度假村内餐厅。"],
+          ["10/3 周六｜外堡礁 / 心形礁", "方案 A：外堡礁一日游，浮潜/平台活动。", "方案 B：心形礁观光飞行 + 下午休息。", "把当天作为弹性日，天气不好就替换成 Airlie 周边轻松活动。"],
+          ["10/4 周日｜飞悉尼", "慢早餐、泳池、退房寄存。", "Airlie Beach 午餐后去 PPP 机场。", "17:50 飞悉尼，21:15 到，入住后只安排轻量活动。"]
+        ]
+      },
+      {
+        id: "sydney",
+        name: "悉尼",
+        short: "2 晚，收尾和返程",
+        dates: "10月4日 - 10月6日晚",
+        image: "https://images.unsplash.com/photo-1506973035872-a4ec16b8e8d9?auto=format&fit=crop&w=1300&q=80",
+        thumb: "https://images.unsplash.com/photo-1506973035872-a4ec16b8e8d9?auto=format&fit=crop&w=200&q=80",
+        thesis: "悉尼只有 2 晚，而且第一晚到得晚，所以重点是一个完整白天。住宿建议靠 Darling Harbour / CBD，降低转场成本，10/6 晚上直接去机场飞北京。",
+        hotels: [
+          ["Meriton Suites Sussex Street", "两卧套房体验稳定，位置适合 Darling Harbour、CBD 和返程交通；预算目标 ¥1,900-2,400/晚。"],
+          ["Rydges Darling Square Apartment Hotel", "位置方便，价格可能更稳；确认是否有真正 two-bedroom apartment。"]
+        ],
+        advice: [
+          "悉尼不要安排蓝山，往返会吃掉唯一完整白天。",
+          "10/5 主线建议 Opera House + The Rocks + Harbour Bridge + Bondi/Manly 二选一。",
+          "10/6 白天做轻松购物/咖啡/补拍，晚上留足机场时间。"
+        ],
+        transport: [
+          "10/4 PPP -> SYD 晚到，住 CBD/Darling Harbour 最省心。",
+          "10/6 SYD -> PEK：CA 174 20:40 -> 05:25+1。",
+          "国际航班建议 17:30 左右到机场，别把最后一天排满。"
+        ],
+        days: [
+          ["10/4 周日｜抵达悉尼", "圣灵群岛上午收尾，下午去 PPP。", "17:50 起飞，21:15 到悉尼。", "入住 Darling Harbour/CBD，简单夜宵或散步。"],
+          ["10/5 周一｜悉尼经典线", "Opera House、Royal Botanic Garden、Circular Quay。", "The Rocks、Harbour Bridge；下午 Bondi 或 Manly 二选一。", "Darling Harbour 或 Surry Hills 晚餐。"],
+          ["10/6 周二｜返程日", "轻松 brunch、QVB/Westfield/纪念品。", "回酒店取行李，16:30-17:00 出发去机场。", "20:40 CA 174 悉尼直飞北京。"]
+        ]
+      },
+      {
+        id: "ideas",
+        name: "大家的想法",
+        short: "输入建议，共享保存，在线生成",
+        dates: "协作输入区",
+        image: "https://images.unsplash.com/photo-1521737604893-d14cc237f11d?auto=format&fit=crop&w=1300&q=80",
+        thumb: "https://images.unsplash.com/photo-1521737604893-d14cc237f11d?auto=format&fit=crop&w=200&q=80",
+        thesis: "把大家零散的想法结构化收集起来，提交后所有人都能看到；点击生成新版计划后，行程总览和下方目的地模块会同步更新。",
+        days: []
+      }
+    ];
+
+    const nav = document.getElementById("nav");
+    const detail = document.getElementById("detail");
+    const workspaceTabsEl = document.getElementById("workspaceTabs");
+    const workspaceBodyEl = document.getElementById("workspaceBody");
+    const ideaStorageKey = "australia-trip-ideas-v1";
+    const generatedTripStorageKey = "australia-trip-generated-v1";
+    const tripBasicsStorageKey = "group-trip-basics-v1";
+    const activeTripTemplateStorageKey = "group-trip-active-template-v1";
+    const originalPlaces = JSON.parse(JSON.stringify(places));
+    let sharedIdeas = readLocalIdeas();
+    let sharedGeneratedTrip = readLocalGeneratedTrip();
+    let activeWorkspaceTab = "overview";
+    let activeTripTemplate = localStorage.getItem(activeTripTemplateStorageKey) || "australia";
+    let activePlaceId = "perth";
+    const workspaceTabs = [
+      { id: "create", label: "创建行程" },
+      { id: "overview", label: "行程总览" },
+      { id: "ideas", label: "大家的想法" },
+      { id: "versions", label: "版本记录" }
+    ];
+    const tripTemplates = {
+      australia: {
+        destination: "澳大利亚",
+        scope: "国家旅行",
+        dates: "2026-09-26 - 2026-10-06",
+        travelers: "3 人，其中一对情侣",
+        budget: "住宿总预算尽量不超过 ¥23,000",
+        pace: "适中，圣灵群岛放松，城市段不塞太满",
+        mustGo: "Hutt Lagoon 粉红湖、尖峰石阵、Rottnest Island、Whitehaven Beach、抱考拉/看袋鼠、悉尼经典城市线",
+        avoid: "不把长距离景点硬塞进唯一完整白天；避免一卧加沙发床"
+      },
+      new: {
+        destination: "新的旅行目的地",
+        scope: "自定义路线",
+        dates: "待填写",
+        travelers: "待填写",
+        budget: "待填写",
+        pace: "待填写：轻松 / 适中 / 紧凑",
+        mustGo: "列出必须去的地点、体验或餐厅",
+        avoid: "列出不想要的节奏、住宿、交通或预算限制"
+      },
+      city: {
+        destination: "城市短途",
+        scope: "城市旅行",
+        dates: "2-4 晚",
+        travelers: "待填写",
+        budget: "住宿便利优先，预算适中",
+        pace: "轻松到适中，减少跨区折返",
+        mustGo: "城市核心景点、当地餐厅、一个特色体验",
+        avoid: "避免每天换酒店；避免把远郊景点塞进同一天"
+      },
+      island: {
+        destination: "海岛度假",
+        scope: "省州旅行",
+        dates: "4-6 晚",
+        travelers: "待填写",
+        budget: "酒店/度假村体验优先，其他项目弹性控制",
+        pace: "轻松，保留天气弹性日",
+        mustGo: "优质住宿、出海/浮潜、日落、至少一个完全休息半天",
+        avoid: "避免每天高强度出海；避免为了打卡牺牲休息"
+      }
+    };
+
+    function escapeHTML(value) {
+      return String(value || "").replace(/[&<>"']/g, char => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;"
+      }[char]));
+    }
+
+    function readLocalIdeas() {
+      try {
+        return JSON.parse(localStorage.getItem(ideaStorageKey) || "[]");
+      } catch (error) {
+        return [];
+      }
+    }
+
+    function readLocalGeneratedTrip() {
+      try {
+        return JSON.parse(localStorage.getItem(generatedTripStorageKey) || "null");
+      } catch {
+        return null;
+      }
+    }
+
+    function getTripBasics() {
+      const defaults = tripTemplates[activeTripTemplate] || tripTemplates.australia;
+      try {
+        return {
+          ...defaults,
+          ...JSON.parse(localStorage.getItem(tripBasicsStorageKey) || "{}")
+        };
+      } catch {
+        return defaults;
+      }
+    }
+
+    function saveTripBasics(basics) {
+      localStorage.setItem(tripBasicsStorageKey, JSON.stringify(basics));
+    }
+
+    function setActiveTripTemplate(templateId) {
+      activeTripTemplate = tripTemplates[templateId] ? templateId : "australia";
+      localStorage.setItem(activeTripTemplateStorageKey, activeTripTemplate);
+      saveTripBasics(tripTemplates[activeTripTemplate]);
+      document.querySelectorAll("[data-trip-template]").forEach(button => {
+        button.classList.toggle("active", button.dataset.tripTemplate === activeTripTemplate);
+      });
+      renderWorkspaceTab(activeTripTemplate === "australia" ? "overview" : "create");
+    }
+
+    function bindTripSwitcher() {
+      document.querySelectorAll("[data-trip-template]").forEach(button => {
+        button.classList.toggle("active", button.dataset.tripTemplate === activeTripTemplate);
+        button.addEventListener("click", () => setActiveTripTemplate(button.dataset.tripTemplate));
+      });
+    }
+
+    function getIdeas() {
+      return sharedIdeas;
+    }
+
+    function saveIdeas(ideas) {
+      sharedIdeas = Array.isArray(ideas) ? ideas : [];
+      localStorage.setItem(ideaStorageKey, JSON.stringify(ideas));
+    }
+
+    function getGeneratedTrip() {
+      return sharedGeneratedTrip;
+    }
+
+    function saveGeneratedTrip(plan) {
+      sharedGeneratedTrip = plan || null;
+      localStorage.setItem(generatedTripStorageKey, JSON.stringify(plan));
+    }
+
+    function clearGeneratedTrip() {
+      sharedGeneratedTrip = null;
+      localStorage.removeItem(generatedTripStorageKey);
+    }
+
+    function getTripPlaceIds() {
+      return ["perth", "melbourne", "whitsundays", "sydney"];
+    }
+
+    function normalizePlace(candidate, fallback) {
+      return {
+        ...fallback,
+        ...candidate,
+        id: fallback.id,
+        name: candidate?.name || fallback.name,
+        dates: candidate?.dates || fallback.dates,
+        thesis: candidate?.thesis || fallback.thesis,
+        hotels: Array.isArray(candidate?.hotels) ? candidate.hotels : fallback.hotels,
+        transport: Array.isArray(candidate?.transport) ? candidate.transport : fallback.transport,
+        advice: Array.isArray(candidate?.advice) ? candidate.advice : fallback.advice,
+        days: Array.isArray(candidate?.days) ? candidate.days : fallback.days
+      };
+    }
+
+    function applyGeneratedPlaces(updatedPlaces) {
+      if (!Array.isArray(updatedPlaces)) return false;
+      const ids = getTripPlaceIds();
+      let changed = false;
+
+      ids.forEach(id => {
+        const currentIndex = places.findIndex(place => place.id === id);
+        const fallback = originalPlaces.find(place => place.id === id);
+        const candidate = updatedPlaces.find(place => place.id === id);
+        if (currentIndex >= 0 && fallback && candidate) {
+          places[currentIndex] = normalizePlace(candidate, fallback);
+          changed = true;
+        }
+      });
+
+      return changed;
+    }
+
+    function restoreOriginalPlaces() {
+      getTripPlaceIds().forEach(id => {
+        const currentIndex = places.findIndex(place => place.id === id);
+        const fallback = originalPlaces.find(place => place.id === id);
+        if (currentIndex >= 0 && fallback) {
+          places[currentIndex] = JSON.parse(JSON.stringify(fallback));
+        }
+      });
+      clearGeneratedTrip();
+    }
+
+    function bootstrapGeneratedTrip() {
+      const generated = getGeneratedTrip();
+      if (generated?.updatedPlaces) {
+        applyGeneratedPlaces(generated.updatedPlaces);
+      }
+    }
+
+    function comparablePlace(place) {
+      if (!place) return null;
+      return {
+        dates: place.dates,
+        thesis: place.thesis,
+        hotels: place.hotels,
+        transport: place.transport,
+        advice: place.advice,
+        days: place.days
+      };
+    }
+
+    function hasGeneratedChanges(placeId) {
+      const current = places.find(place => place.id === placeId);
+      const original = originalPlaces.find(place => place.id === placeId);
+      if (!current || !original || !getGeneratedTrip()?.updatedPlaces) return false;
+      return JSON.stringify(comparablePlace(current)) !== JSON.stringify(comparablePlace(original));
+    }
+
+    function isPlaceExplicitlyChanged(placeId) {
+      const generated = getGeneratedTrip();
+      if (!generated) return false;
+      const aliases = {
+        perth: ["珀斯", "perth", "rotto", "rottnest", "粉红湖", "尖峰石阵"],
+        melbourne: ["墨尔本", "melbourne", "考拉", "企鹅", "phillip", "moonlit"],
+        whitsundays: ["圣灵群岛", "whitsundays", "whitehaven", "hill inlet", "心形礁", "外堡礁"],
+        sydney: ["悉尼", "sydney", "bondi", "fish market", "鱼市场", "悉尼大学", "opera house"]
+      };
+      const changeText = [
+        ...(Array.isArray(generated.changes) ? generated.changes : []),
+        generated.summary || ""
+      ].join("\n").toLowerCase();
+      const candidates = aliases[placeId] || [];
+      return candidates.some(alias => changeText.includes(alias.toLowerCase()));
+    }
+
+    function shouldShowGeneratedBadge(placeId) {
+      const generated = getGeneratedTrip();
+      if (!generated) return false;
+      if (Array.isArray(generated.changes) && generated.changes.length) {
+        return isPlaceExplicitlyChanged(placeId);
+      }
+      return hasGeneratedChanges(placeId);
+    }
+
+    function getChangedPlaceNames(stops) {
+      return stops
+        .filter(place => shouldShowGeneratedBadge(place.id))
+        .map(place => place.name);
+    }
+
+    function getActivePlaceId() {
+      return activePlaceId || "perth";
+    }
+
+    function refreshNavForCurrentPlace() {
+      renderNav(getActivePlaceId());
+    }
+
+    function analyzeIdea(idea) {
+      const text = `${idea.destination} ${idea.category} ${idea.text}`.toLowerCase();
+      const impacts = [];
+
+      if (/早起|太早|睡|晚起|晚一点|不想早/.test(text)) {
+        impacts.push(["时间", "会影响 10/1 墨尔本 07:40 早班机，可能需要机场酒店或改航班。"]);
+      }
+      if (/蓝山|大洋路|袋鼠岛|adelaide|阿德莱德|kangaroo/.test(text)) {
+        impacts.push(["景点", "属于长距离加点，当前 10 晚结构里会挤压墨尔本/悉尼唯一完整白天。"]);
+      }
+      if (/粉红湖|hutt|pink/.test(text)) {
+        impacts.push(["路线", "粉红湖是硬约束，建议只调整当天节奏，不从主线删除。"]);
+      }
+      if (/全包|豪华|mirage|hayman|qualia|hamilton|服务好|度假村/.test(text)) {
+        impacts.push(["预算", "圣灵群岛升级会明显抬高总价，珀斯/墨尔本/悉尼住宿需要更克制。"]);
+      }
+      if (/便宜|预算|贵|超预算|省钱|性价比|188|all suites/.test(text)) {
+        impacts.push(["住宿", "可以优先替换珀斯或墨尔本住宿，但要守住两卧和取消政策。"]);
+      }
+      if (/航班|飞机|转机|机场|起飞|到达|per|mel|ppp|syd/.test(text)) {
+        impacts.push(["航班", "需要重新核验起降时间，尤其是是否影响当天上午/晚上行程。"]);
+      }
+      if (/考拉|袋鼠|企鹅|动物/.test(text)) {
+        impacts.push(["游玩", "最适合放在 9/30 墨尔本 Moonlit + Phillip Island 这一天。"]);
+      }
+      if (/白天堂|whitehaven|hill inlet|心形礁|外堡礁|reef/.test(text)) {
+        impacts.push(["圣灵群岛", "建议保留 10/2 Whitehaven，10/3 在外堡礁和心形礁之间取舍。"]);
+      }
+      if (!impacts.length) {
+        impacts.push(["待判断", "这条建议需要结合预算、同行人优先级和当天交通再判断。"]);
+      }
+
+      if (idea.priority === "must") {
+        impacts.unshift(["优先级", "这是强需求，重排时优先保留，其他项目为它让位。"]);
+      }
+
+      return impacts;
+    }
+
+    function buildIdeaExport() {
+      const ideas = getIdeas();
+      const rows = ideas.map((idea, index) => {
+        const impacts = analyzeIdea(idea).map(item => `${item[0]}：${item[1]}`).join("；");
+        return `${index + 1}. ${idea.name || "未署名"}｜${idea.destination}｜${idea.category}｜${idea.priorityLabel}\n建议：${idea.text}\n初步影响：${impacts}`;
+      }).join("\n\n");
+
+      const basics = getTripBasics();
+      return `请基于以下基础约束和同行建议，重排旅行行程。\n\n基础约束：\n目的地：${basics.destination}\n旅行范围：${basics.scope}\n时间：${basics.dates}\n同行人：${basics.travelers}\n预算：${basics.budget}\n节奏偏好：${basics.pace}\n必须保留：${basics.mustGo}\n尽量避免：${basics.avoid}\n\n当前澳洲示例硬约束：9/26 08:00 到珀斯；9/27-9/28 携程粉红湖+尖峰石阵两日游；Perth 3晚、Melbourne 2晚、Whitsundays 3晚、Sydney 2晚；10/6 晚上悉尼飞北京；住宿优先两卧，住宿总预算尽量不超过 ¥23,000。\n\n同行建议：\n${rows || "暂无建议"}`;
+    }
+
+    function getCurrentTripPayload() {
+      return {
+        basics: getTripBasics(),
+        constraints: {
+          arrival: "2026-09-26 08:00 Perth",
+          departure: "2026-10-06 20:40 Sydney to Beijing, CA 174",
+          nights: "Perth 3 nights, Melbourne 2 nights, Whitsundays 3 nights, Sydney 2 nights",
+          fixedItems: [
+            "2026-09-27 to 2026-09-28 Ctrip Hutt Lagoon Pink Lake + Pinnacles two-day tour",
+            "Three travelers including one couple",
+            "Prefer one unit with two real bedrooms",
+            "Accommodation budget target under CNY 23,000"
+          ]
+        },
+        places: places
+          .filter(place => place.id !== "ideas")
+          .map(place => ({
+            id: place.id,
+            name: place.name,
+            dates: place.dates,
+            thesis: place.thesis,
+            hotels: place.hotels,
+            transport: place.transport,
+            advice: place.advice,
+            days: place.days
+          }))
+      };
+    }
+
+    function getApiEndpoint() {
+      if (location.protocol === "file:") return "http://127.0.0.1:8787/api/plan";
+      return "/api/plan";
+    }
+
+    function getApiBase() {
+      if (location.protocol === "file:") return "http://127.0.0.1:8787";
+      return "";
+    }
+
+    async function fetchJson(path, options = {}) {
+      const response = await fetch(`${getApiBase()}${path}`, {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          ...(options.headers || {})
+        }
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || `请求失败：HTTP ${response.status}`);
+      }
+      return data;
+    }
+
+    async function syncStateFromServer() {
+      try {
+        const state = await fetchJson("/api/state");
+        saveIdeas(state.ideas || []);
+        if (state.generatedTrip) {
+          saveGeneratedTrip(state.generatedTrip);
+          applyGeneratedPlaces(state.generatedTrip.updatedPlaces);
+        } else {
+          restoreOriginalPlaces();
+        }
+        refreshNavForCurrentPlace();
+        renderIdeaList();
+        refreshIdeaExport();
+        const output = document.getElementById("aiOutput");
+        if (output) {
+          const generated = getGeneratedTrip();
+          output.textContent = generated ? formatGeneratedSummary(generated) : "在线推演结果会显示在这里。生成后，行程总览和下方城市模块会同步更新。";
+        }
+      } catch {
+        renderIdeaList();
+        refreshIdeaExport();
+      }
+    }
+
+    function renderNav(activeId) {
+      if (!nav) return;
+      nav.innerHTML = places.filter(place => place.id !== "ideas").map(place => `
+        <button type="button" class="${place.id === activeId ? "active" : ""}" data-id="${place.id}" aria-label="打开 ${place.name}">
+          <img src="${place.thumb}" alt="" loading="lazy" onerror="this.onerror=null;this.src='https://images.unsplash.com/photo-1523482580672-f109ba8cb9be?auto=format&fit=crop&w=200&q=80';" />
+          <span><b>${place.name}</b><small>${place.short}</small></span>
+        </button>
+      `).join("");
+
+      nav.querySelectorAll("button").forEach(button => {
+        button.addEventListener("click", () => renderPlace(button.dataset.id));
+      });
+    }
+
+    function updateActiveRouteStops() {
+      workspaceBodyEl.querySelectorAll("[data-route-place]").forEach(button => {
+        button.classList.toggle("active", button.dataset.routePlace === getActivePlaceId());
+      });
+    }
+
+    function renderWorkspaceTabs() {
+      workspaceTabsEl.innerHTML = workspaceTabs.map(tab => `
+        <button type="button" class="${tab.id === activeWorkspaceTab ? "active" : ""}" data-workspace-tab="${tab.id}">
+          ${tab.label}
+        </button>
+      `).join("");
+
+      workspaceTabsEl.querySelectorAll("[data-workspace-tab]").forEach(button => {
+        button.addEventListener("click", () => renderWorkspaceTab(button.dataset.workspaceTab));
+      });
+    }
+
+    function renderCreateTripTab() {
+      const basics = getTripBasics();
+      workspaceBodyEl.innerHTML = `
+        <div class="workspace-grid">
+          <div class="block">
+            <h4>输入基础旅行信息</h4>
+            <form class="trip-form" id="tripBasicsForm">
+              <div class="field-grid">
+                <label>目的地
+                  <input name="destination" value="${escapeHTML(basics.destination)}" placeholder="例如：澳大利亚 / 日本 / 上海 / 云南" />
+                </label>
+                <label>旅行范围
+                  <select name="scope">
+                    ${["国家旅行", "城市旅行", "省州旅行", "多城市旅行", "自定义路线"].map(scope => `
+                      <option value="${scope}" ${basics.scope === scope ? "selected" : ""}>${scope}</option>
+                    `).join("")}
+                  </select>
+                </label>
+                <label>旅行时间
+                  <input name="dates" value="${escapeHTML(basics.dates)}" placeholder="例如：2026-09-26 - 2026-10-06" />
+                </label>
+                <label>同行人
+                  <input name="travelers" value="${escapeHTML(basics.travelers)}" placeholder="例如：3 人，其中一对情侣" />
+                </label>
+                <label>预算偏好
+                  <input name="budget" value="${escapeHTML(basics.budget)}" placeholder="例如：住宿总预算 ¥23,000 以内" />
+                </label>
+                <label>节奏偏好
+                  <input name="pace" value="${escapeHTML(basics.pace)}" placeholder="例如：轻松 / 适中 / 紧凑" />
+                </label>
+              </div>
+              <label>必须去 / 必须保留
+                <textarea name="mustGo" placeholder="例如：粉红湖、白天堂沙滩、抱考拉">${escapeHTML(basics.mustGo)}</textarea>
+              </label>
+              <label>尽量避免 / 特殊限制
+                <textarea name="avoid" placeholder="例如：不想太早起；不要住一卧加沙发床；不想频繁换酒店">${escapeHTML(basics.avoid)}</textarea>
+              </label>
+              <div class="button-row">
+                <button class="action-btn" type="submit">保存基础信息</button>
+                <button class="action-btn secondary" type="button" id="jumpToOverview">查看当前行程</button>
+              </div>
+            </form>
+          </div>
+
+          <div class="block">
+            <h4>生成初版的输入框架</h4>
+            <ul class="list">
+              <li>目的地可以是国家、城市、省州或多城市路线。</li>
+              <li>必须去的地方会作为硬约束，其他景点按时间和交通取舍。</li>
+              <li>节奏、预算、住宿房型、同行人结构会影响每天上午/下午/晚上的安排。</li>
+              <li>生成初版后，大家再在现有行程上提交想法，形成新版计划。</li>
+            </ul>
+            <div class="note">当前页面先用澳洲 10 晚作为完整示例；换下一次旅行时，只需要先改这里的基础信息，再逐步替换目的地模块。</div>
+          </div>
+        </div>
+      `;
+
+      document.getElementById("tripBasicsForm")?.addEventListener("submit", event => {
+        event.preventDefault();
+        const data = new FormData(event.currentTarget);
+        saveTripBasics({
+          destination: String(data.get("destination") || "").trim(),
+          scope: String(data.get("scope") || "").trim(),
+          dates: String(data.get("dates") || "").trim(),
+          travelers: String(data.get("travelers") || "").trim(),
+          budget: String(data.get("budget") || "").trim(),
+          pace: String(data.get("pace") || "").trim(),
+          mustGo: String(data.get("mustGo") || "").trim(),
+          avoid: String(data.get("avoid") || "").trim()
+        });
+        renderWorkspaceTab("overview");
+      });
+
+      document.getElementById("jumpToOverview")?.addEventListener("click", () => renderWorkspaceTab("overview"));
+    }
+
+    function renderOverviewTab() {
+      const basics = getTripBasics();
+      const stops = getTripPlaceIds()
+        .map(id => places.find(place => place.id === id))
+        .filter(Boolean);
+      const totalDays = stops.reduce((sum, place) => sum + (Array.isArray(place.days) ? place.days.length : 0), 0);
+      const hotelOptions = stops.reduce((sum, place) => sum + (Array.isArray(place.hotels) ? place.hotels.length : 0), 0);
+      const transportNodes = stops.reduce((sum, place) => sum + (Array.isArray(place.transport) ? place.transport.length : 0), 0);
+      const generated = getGeneratedTrip();
+      const changedPlaceNames = getChangedPlaceNames(stops);
+      const fixedHighlights = [
+        "9/26 抵达后直接 Rottnest Island",
+        "9/27-9/28 粉红湖 + 尖峰石阵两日游",
+        "9/30 墨尔本动物线：考拉/袋鼠/企鹅",
+        "10/2 Whitehaven + Hill Inlet 作为海岛核心日"
+      ];
+
+      workspaceBodyEl.innerHTML = `
+        <div class="workspace-grid">
+          <div class="summary-panel">
+            <div class="hero-text">
+              <div class="route-header">
+                <div>
+                  <h2>整体路线</h2>
+                  <p>点击任一城市节点，下方会切换到对应的住宿、交通和每日安排模块。</p>
+                </div>
+                <div class="pill-row">
+                  <span class="pill">${escapeHTML(basics.scope)}</span>
+                  <span class="pill">${escapeHTML(basics.dates)}</span>
+                </div>
+              </div>
+              <div class="route-flow">
+                ${stops.map(place => `
+                  <button class="route-stop ${place.id === getActivePlaceId() ? "active" : ""}" type="button" data-route-place="${place.id}" aria-label="查看 ${escapeHTML(place.name)} 行程">
+                    <strong>${escapeHTML(place.name)}</strong>
+                    <span>${escapeHTML(place.dates)}</span>
+                    <em>${escapeHTML(place.short)}</em>
+                    ${shouldShowGeneratedBadge(place.id) ? `<span class="route-badge">AI 已更新</span>` : ""}
+                  </button>
+                `).join("")}
+              </div>
+              ${generated ? `
+                <div class="generated-summary">
+                  <strong>当前采用新版计划</strong>
+                  <p>${escapeHTML(generated.summary || "已根据大家的建议生成新版行程。")}</p>
+                  ${changedPlaceNames.length ? `<p>已更新城市：${changedPlaceNames.map(name => escapeHTML(name)).join("、")}</p>` : `<p>已生成新版计划，但城市节点未检测到结构化差异。</p>`}
+                  ${Array.isArray(generated.changes) && generated.changes.length ? `
+                    <ul>${generated.changes.slice(0, 3).map(change => `<li>${escapeHTML(change)}</li>`).join("")}</ul>
+                  ` : ""}
+                </div>
+              ` : ""}
+              <div class="metric-strip">
+                <div class="metric"><strong>${stops.length}</strong><span>目的地模块</span></div>
+                <div class="metric"><strong>${totalDays}</strong><span>已拆分日程</span></div>
+                <div class="metric"><strong>${hotelOptions}</strong><span>住宿备选</span></div>
+                <div class="metric"><strong>${getIdeas().length}</strong><span>同行建议</span></div>
+              </div>
+              <div class="overview-insights">
+                <div class="overview-insight">
+                  <b>阶段重点</b>
+                  <p>${fixedHighlights.map(item => escapeHTML(item)).join("；")}</p>
+                </div>
+                <div class="overview-insight">
+                  <b>住宿策略</b>
+                  <p>三人同行优先一套两卧；圣灵群岛可适当贵，珀斯、墨尔本、悉尼负责控总预算。</p>
+                </div>
+                <div class="overview-insight">
+                  <b>交通硬点</b>
+                  <p>已记录 ${transportNodes} 个航班/接驳节点；跨城市日优先保证上午或晚上的可玩时间。</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <aside class="budget-panel">
+            <h3>基础约束</h3>
+            <div class="pill-row">
+              <span class="pill">${escapeHTML(basics.destination)}</span>
+              <span class="pill">${escapeHTML(basics.scope)}</span>
+              <span class="pill">${escapeHTML(basics.dates)}</span>
+            </div>
+            <p class="tagline">${escapeHTML(basics.travelers)}</p>
+            <div class="budget-row"><span>预算</span><div class="bar"><span style="width: 78%"></span></div><b>约束</b></div>
+            <div class="budget-row"><span>节奏</span><div class="bar"><span style="width: 62%"></span></div><b>适中</b></div>
+            <div class="budget-row"><span>共创</span><div class="bar"><span style="width: ${Math.min(100, getIdeas().length * 18 + 20)}%"></span></div><b>${getIdeas().length} 条</b></div>
+            <div class="note">必须保留：${escapeHTML(basics.mustGo)}</div>
+            <div class="button-row">
+              <button class="action-btn" type="button" id="editBasics">修改基础信息</button>
+              <button class="action-btn secondary" type="button" id="openIdeasTab">提交想法</button>
+            </div>
+          </aside>
+        </div>
+      `;
+
+      document.getElementById("editBasics")?.addEventListener("click", () => renderWorkspaceTab("create"));
+      document.getElementById("openIdeasTab")?.addEventListener("click", () => renderWorkspaceTab("ideas"));
+      workspaceBodyEl.querySelectorAll("[data-route-place]").forEach(button => {
+        button.addEventListener("click", () => renderPlace(button.dataset.routePlace));
+      });
+    }
+
+    function renderIdeasTab() {
+      const generated = getGeneratedTrip();
+      workspaceBodyEl.innerHTML = `
+        <div class="idea-layout">
+          <div class="block">
+            <h4>输入一条想法</h4>
+            <form class="idea-form" id="ideaForm">
+              <div class="field-grid">
+                <label>谁提的
+                  <input name="name" placeholder="例如：我 / A / B" autocomplete="off" />
+                </label>
+                <label>关联地点
+                  <select name="destination">
+                    <option value="全程">全程</option>
+                    <option value="珀斯">珀斯</option>
+                    <option value="墨尔本">墨尔本</option>
+                    <option value="圣灵群岛">圣灵群岛</option>
+                    <option value="悉尼">悉尼</option>
+                    <option value="住宿">住宿</option>
+                    <option value="航班">航班</option>
+                  </select>
+                </label>
+                <label>建议类型
+                  <select name="category">
+                    <option value="想加景点">想加景点</option>
+                    <option value="想删/压缩">想删/压缩</option>
+                    <option value="住宿偏好">住宿偏好</option>
+                    <option value="预算限制">预算限制</option>
+                    <option value="航班时间">航班时间</option>
+                    <option value="节奏偏好">节奏偏好</option>
+                  </select>
+                </label>
+                <label>优先级
+                  <select name="priority">
+                    <option value="nice">想要，但可让步</option>
+                    <option value="important">比较重要</option>
+                    <option value="must">必须满足</option>
+                  </select>
+                </label>
+              </div>
+              <label>具体想法
+                <textarea name="text" placeholder="例如：圣灵群岛想住得好一点；墨尔本不想太早起；悉尼想去蓝山；珀斯 188 Apartments 看起来便宜，可以考虑吗？" required></textarea>
+              </label>
+              <div class="button-row">
+                <button class="action-btn" type="submit">保存并判断影响</button>
+                <button class="action-btn secondary" type="button" id="fillExample">填一个示例</button>
+              </div>
+            </form>
+          </div>
+
+          <div class="block">
+            <h4>在线推演</h4>
+            <ul class="list">
+              <li>把基础约束、当前行程和大家建议一起提交，自动生成新版计划。</li>
+              <li>输出会说明哪些建议被采纳，哪些建议会冲突，以及替代方案。</li>
+              <li>生成结果只作为讨论稿，订房和航班仍需要最终核验。</li>
+            </ul>
+            <div class="note">适合先收集同行偏好，再统一生成一版可讨论的行程调整稿。</div>
+          </div>
+        </div>
+
+        <div class="block" style="margin-top: 14px;">
+          <h4>已收集的建议</h4>
+          <div class="idea-list" id="ideaList"></div>
+        </div>
+
+        <div class="block" style="margin-top: 14px;">
+          <h4>导出给 AI 的重排提示</h4>
+          <textarea class="export-box" id="exportBox" readonly></textarea>
+          <div class="button-row">
+            <button class="action-btn" type="button" id="refreshExport">刷新导出内容</button>
+            <button class="action-btn" type="button" id="generateAI">生成新版计划</button>
+            <button class="action-btn secondary" type="button" id="downloadExport">下载 JSON</button>
+            <button class="action-btn secondary" type="button" id="restorePlan">恢复原计划</button>
+            <button class="action-btn secondary" type="button" id="clearIdeas">清空本地建议</button>
+          </div>
+          <div class="status-line" id="aiStatus"></div>
+          <div class="ai-output" id="aiOutput">${generated ? escapeHTML(formatGeneratedSummary(generated)) : "在线推演结果会显示在这里。生成后，行程总览和下方目的地模块会同步更新。"}</div>
+        </div>
+      `;
+
+      bindIdeaEvents();
+      renderIdeaList();
+      refreshIdeaExport();
+      syncStateFromServer();
+    }
+
+    function renderVersionsTab() {
+      const generated = getGeneratedTrip();
+      workspaceBodyEl.innerHTML = `
+        <div class="version-list">
+          <article class="version-card">
+            <strong>初始版本：澳洲 10 晚示例行程</strong>
+            <p class="tagline">包含珀斯 3 晚、墨尔本 2 晚、圣灵群岛 3 晚、悉尼 2 晚，以及粉红湖 + 尖峰石阵两日游。</p>
+            <div class="button-row">
+              <button class="action-btn secondary" type="button" id="restoreFromVersions">恢复初始版本</button>
+            </div>
+          </article>
+          <article class="version-card">
+            <strong>当前协作版本：${generated ? "AI 生成版" : "尚未生成新版"}</strong>
+            <p class="tagline">${generated ? escapeHTML(generated.summary || "已根据大家建议生成新版计划。") : "提交大家的想法后，可以在“大家的想法”里生成新版计划。"}</p>
+            ${Array.isArray(generated?.changes) && generated.changes.length ? `
+              <ul class="list">${generated.changes.map(change => `<li>${escapeHTML(change)}</li>`).join("")}</ul>
+            ` : ""}
+            <div class="button-row">
+              <button class="action-btn" type="button" id="goIdeasFromVersions">去提交/生成</button>
+              <button class="action-btn secondary" type="button" id="goOverviewFromVersions">看路线总览</button>
+            </div>
+          </article>
+        </div>
+      `;
+
+      document.getElementById("restoreFromVersions")?.addEventListener("click", async () => {
+        try {
+          await fetchJson("/api/reset-plan", { method: "POST" });
+        } catch {
+          // Local fallback keeps the page usable when opened as a file.
+        }
+        restoreOriginalPlaces();
+        refreshNavForCurrentPlace();
+        renderWorkspaceTab("versions");
+      });
+      document.getElementById("goIdeasFromVersions")?.addEventListener("click", () => renderWorkspaceTab("ideas"));
+      document.getElementById("goOverviewFromVersions")?.addEventListener("click", () => renderWorkspaceTab("overview"));
+    }
+
+    function renderWorkspaceTab(tabId = activeWorkspaceTab) {
+      activeWorkspaceTab = tabId;
+      renderWorkspaceTabs();
+      if (tabId === "create") {
+        renderCreateTripTab();
+      } else if (tabId === "ideas") {
+        renderIdeasTab();
+      } else if (tabId === "versions") {
+        renderVersionsTab();
+      } else {
+        renderOverviewTab();
+      }
+    }
+
+    function slots(day) {
+      return `
+        <div class="day">
+          <div class="day-title"><span>${day[0]}</span></div>
+          <div class="slot-grid">
+            <div class="slot"><b>上午</b><p>${day[1]}</p></div>
+            <div class="slot"><b>下午</b><p>${day[2]}</p></div>
+            <div class="slot"><b>晚上</b><p>${day[3]}</p></div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderIdeas() {
+      const place = places.find(item => item.id === "ideas");
+      const generated = getGeneratedTrip();
+      refreshNavForCurrentPlace();
+
+      detail.innerHTML = `
+        <header class="place-head" style="background-image: url('${place.image}')">
+          <div class="pill-row"><span class="pill">${place.dates}</span><span class="pill">本地保存</span><span class="pill">可导出给 AI</span></div>
+          <h2>${place.name}</h2>
+          <p>${place.thesis}</p>
+        </header>
+        <div class="detail-body">
+          <div class="main-col" style="grid-column: 1 / -1;">
+            <div class="idea-layout">
+              <div class="block">
+                <h4>输入一条想法</h4>
+                <form class="idea-form" id="ideaForm">
+                  <div class="field-grid">
+                    <label>谁提的
+                      <input name="name" placeholder="例如：我 / A / B" autocomplete="off" />
+                    </label>
+                    <label>关联地点
+                      <select name="destination">
+                        <option value="全程">全程</option>
+                        <option value="珀斯">珀斯</option>
+                        <option value="墨尔本">墨尔本</option>
+                        <option value="圣灵群岛">圣灵群岛</option>
+                        <option value="悉尼">悉尼</option>
+                        <option value="住宿">住宿</option>
+                        <option value="航班">航班</option>
+                      </select>
+                    </label>
+                    <label>建议类型
+                      <select name="category">
+                        <option value="想加景点">想加景点</option>
+                        <option value="想删/压缩">想删/压缩</option>
+                        <option value="住宿偏好">住宿偏好</option>
+                        <option value="预算限制">预算限制</option>
+                        <option value="航班时间">航班时间</option>
+                        <option value="节奏偏好">节奏偏好</option>
+                      </select>
+                    </label>
+                    <label>优先级
+                      <select name="priority">
+                        <option value="nice">想要，但可让步</option>
+                        <option value="important">比较重要</option>
+                        <option value="must">必须满足</option>
+                      </select>
+                    </label>
+                  </div>
+                  <label>具体想法
+                    <textarea name="text" placeholder="例如：圣灵群岛想住得好一点；墨尔本不想太早起；悉尼想去蓝山；珀斯 188 Apartments 看起来便宜，可以考虑吗？" required></textarea>
+                  </label>
+                  <div class="button-row">
+                    <button class="action-btn" type="submit">保存并判断影响</button>
+                    <button class="action-btn secondary" type="button" id="fillExample">填一个示例</button>
+                  </div>
+                </form>
+              </div>
+
+              <div class="block">
+                <h4>在线推演</h4>
+                <ul class="list">
+                  <li>把大家的建议和当前行程一起提交，自动生成新版计划。</li>
+                  <li>输出会说明哪些建议被采纳，哪些建议会冲突，以及替代方案。</li>
+                  <li>生成结果只作为讨论稿，订房和航班仍需要最终核验。</li>
+                </ul>
+                <div class="note">适合先收集同行偏好，再统一生成一版可讨论的行程调整稿。</div>
+              </div>
+            </div>
+
+            <div class="block">
+              <h4>已收集的建议</h4>
+              <div class="idea-list" id="ideaList"></div>
+            </div>
+
+            <div class="block">
+              <h4>导出给 AI 的重排提示</h4>
+              <textarea class="export-box" id="exportBox" readonly></textarea>
+              <div class="button-row">
+                <button class="action-btn" type="button" id="refreshExport">刷新导出内容</button>
+                <button class="action-btn" type="button" id="generateAI">生成新版计划</button>
+                <button class="action-btn secondary" type="button" id="downloadExport">下载 JSON</button>
+                <button class="action-btn secondary" type="button" id="restorePlan">恢复原计划</button>
+                <button class="action-btn secondary" type="button" id="clearIdeas">清空本地建议</button>
+              </div>
+              <div class="status-line" id="aiStatus"></div>
+              <div class="ai-output" id="aiOutput">${generated ? escapeHTML(formatGeneratedSummary(generated)) : "在线推演结果会显示在这里。生成后，行程总览和下方城市模块会同步更新。"}</div>
+            </div>
+          </div>
+        </div>
+      `;
+
+      bindIdeaEvents();
+      renderIdeaList();
+      refreshIdeaExport();
+      syncStateFromServer();
+    }
+
+    function formatGeneratedSummary(plan) {
+      const lines = [];
+      if (plan?.summary) lines.push(plan.summary);
+      if (Array.isArray(plan?.changes) && plan.changes.length) {
+        lines.push("");
+        lines.push("本次调整：");
+        plan.changes.forEach(change => lines.push(`- ${change}`));
+      }
+      lines.push("");
+      lines.push("行程总览和下方城市模块已按新版计划更新。可点击总览里的城市节点查看。");
+      return lines.join("\n");
+    }
+
+    function renderIdeaList() {
+      const list = document.getElementById("ideaList");
+      if (!list) return;
+      const ideas = getIdeas();
+
+      if (!ideas.length) {
+        list.innerHTML = `<div class="note">还没有建议。可以先让大家把住宿、景点、节奏、预算偏好都丢进来。</div>`;
+        return;
+      }
+
+      list.innerHTML = ideas.map(idea => {
+        const impacts = analyzeIdea(idea);
+        return `
+          <article class="idea-card">
+            <div class="idea-meta">
+              <span class="grade">${escapeHTML(idea.destination)}</span>
+              <span class="grade warn">${escapeHTML(idea.category)}</span>
+              <span class="grade ${idea.priority === "must" ? "bad" : ""}">${escapeHTML(idea.priorityLabel)}</span>
+              <span class="tagline">${escapeHTML(idea.name || "未署名")} · ${escapeHTML(idea.createdAt)}</span>
+            </div>
+            <p>${escapeHTML(idea.text)}</p>
+            <div class="impact-grid">
+              ${impacts.map(item => `<div class="impact"><b>${escapeHTML(item[0])}</b><br>${escapeHTML(item[1])}</div>`).join("")}
+            </div>
+            <div class="button-row">
+              <button class="action-btn secondary" type="button" data-delete-idea="${escapeHTML(idea.id)}">删除</button>
+            </div>
+          </article>
+        `;
+      }).join("");
+
+      list.querySelectorAll("[data-delete-idea]").forEach(button => {
+        button.addEventListener("click", async () => {
+          try {
+            const data = await fetchJson(`/api/ideas?id=${encodeURIComponent(button.dataset.deleteIdea)}`, {
+              method: "DELETE"
+            });
+            saveIdeas(data.ideas || []);
+          } catch {
+            const nextIdeas = getIdeas().filter(idea => idea.id !== button.dataset.deleteIdea);
+            saveIdeas(nextIdeas);
+          }
+          renderIdeaList();
+          refreshIdeaExport();
+        });
+      });
+    }
+
+    function refreshIdeaExport() {
+      const box = document.getElementById("exportBox");
+      if (box) box.value = buildIdeaExport();
+    }
+
+    function bindIdeaEvents() {
+      const form = document.getElementById("ideaForm");
+      const fillExample = document.getElementById("fillExample");
+      const refreshExport = document.getElementById("refreshExport");
+      const downloadExport = document.getElementById("downloadExport");
+      const clearIdeas = document.getElementById("clearIdeas");
+      const generateAI = document.getElementById("generateAI");
+      const restorePlan = document.getElementById("restorePlan");
+      if (!form) return;
+
+      form.addEventListener("submit", async event => {
+        event.preventDefault();
+        const data = new FormData(form);
+        const priority = data.get("priority");
+        const priorityMap = {
+          nice: "想要，可让步",
+          important: "比较重要",
+          must: "必须满足"
+        };
+        const idea = {
+          id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          name: String(data.get("name") || "").trim(),
+          destination: String(data.get("destination") || "全程"),
+          category: String(data.get("category") || "想加景点"),
+          priority,
+          priorityLabel: priorityMap[priority] || "想要，可让步",
+          text: String(data.get("text") || "").trim(),
+          createdAt: new Date().toLocaleString("zh-CN", { hour12: false })
+        };
+        if (!idea.text) return;
+        try {
+          const data = await fetchJson("/api/ideas", {
+            method: "POST",
+            body: JSON.stringify(idea)
+          });
+          saveIdeas(data.ideas || [idea, ...getIdeas()]);
+        } catch {
+          saveIdeas([idea, ...getIdeas()]);
+        }
+        form.reset();
+        renderIdeaList();
+        refreshIdeaExport();
+      });
+
+      fillExample?.addEventListener("click", () => {
+        form.elements.name.value = "示例";
+        form.elements.destination.value = "圣灵群岛";
+        form.elements.category.value = "住宿偏好";
+        form.elements.priority.value = "important";
+        form.elements.text.value = "圣灵群岛想住得好一点，如果 Mirage 比 Portside 贵很多，可以看看其他城市住宿能不能压预算。";
+      });
+
+      refreshExport?.addEventListener("click", refreshIdeaExport);
+
+      generateAI?.addEventListener("click", async () => {
+        const status = document.getElementById("aiStatus");
+        const output = document.getElementById("aiOutput");
+        status.textContent = "正在生成新版计划...";
+        output.textContent = "生成中，请稍等。";
+        generateAI.disabled = true;
+
+        try {
+          const response = await fetch(getApiEndpoint(), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              trip: getCurrentTripPayload(),
+              prompt: buildIdeaExport()
+            })
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            throw new Error(data.error || `请求失败：HTTP ${response.status}`);
+          }
+          if (!data.updatedTrip?.updatedPlaces) {
+            throw new Error("已收到模型回复，但没有拿到可更新行程模块的结构化结果。");
+          }
+          const applied = applyGeneratedPlaces(data.updatedTrip.updatedPlaces);
+          if (!applied) {
+            throw new Error("新版计划格式不完整，暂未更新行程模块。");
+          }
+          saveGeneratedTrip(data.updatedTrip);
+          saveIdeas(data.ideas || getIdeas());
+          refreshNavForCurrentPlace();
+          if (activeWorkspaceTab === "overview") {
+            renderWorkspaceTab("overview");
+          }
+          status.textContent = "已生成并更新行程总览和城市模块。";
+          output.textContent = formatGeneratedSummary(data.updatedTrip);
+        } catch (error) {
+          status.textContent = "调用失败。";
+          const message = error instanceof TypeError && /fetch/i.test(error.message)
+            ? "在线推演服务暂时不可用，请确认网站服务已经启动后再试。"
+            : (error.message || "在线推演服务暂时不可用，请稍后再试。");
+          output.textContent = message;
+        } finally {
+          generateAI.disabled = false;
+        }
+      });
+
+      restorePlan?.addEventListener("click", async () => {
+        try {
+          await fetchJson("/api/reset-plan", { method: "POST" });
+        } catch {
+          // Local fallback keeps the page usable when opened as a file.
+        }
+        restoreOriginalPlaces();
+        refreshNavForCurrentPlace();
+        refreshIdeaExport();
+        const status = document.getElementById("aiStatus");
+        const output = document.getElementById("aiOutput");
+        status.textContent = "已恢复原计划。";
+        output.textContent = "已恢复到初始行程版本。";
+      });
+
+      downloadExport?.addEventListener("click", () => {
+        const payload = {
+          exportedAt: new Date().toISOString(),
+          currentTripConstraints: {
+            route: "Perth 3 nights, Melbourne 2 nights, Whitsundays 3 nights, Sydney 2 nights",
+            hardConstraints: [
+              "2026-09-26 08:00 arrive Perth",
+              "2026-09-27 to 2026-09-28 Ctrip Pink Lake + Pinnacles two-day tour",
+              "2026-10-06 evening Sydney to Beijing",
+              "Three travelers, one couple, two-bedroom lodging preferred",
+              "Accommodation budget target under CNY 23,000"
+            ]
+          },
+          ideas: getIdeas(),
+          prompt: buildIdeaExport(),
+          currentTrip: getCurrentTripPayload(),
+          generatedTrip: getGeneratedTrip()
+        };
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "australia-trip-ideas.json";
+        link.click();
+        URL.revokeObjectURL(url);
+      });
+
+      clearIdeas?.addEventListener("click", async () => {
+        if (!confirm("确定清空所有人已提交的建议吗？")) return;
+        try {
+          const data = await fetchJson("/api/ideas", { method: "DELETE" });
+          saveIdeas(data.ideas || []);
+        } catch {
+          saveIdeas([]);
+        }
+        renderIdeaList();
+        refreshIdeaExport();
+      });
+    }
+
+    function renderPlace(id) {
+      const place = places.find(item => item.id === id) || places[0];
+      activePlaceId = place.id;
+      renderNav(place.id);
+      updateActiveRouteStops();
+
+      if (place.id === "ideas") {
+        renderIdeas();
+        return;
+      }
+
+      detail.innerHTML = `
+        <header class="place-head" style="background-image: url('${place.image}')">
+          <div class="pill-row"><span class="pill">${place.dates}</span><span class="pill">${place.short}</span></div>
+          <h2>${place.name}</h2>
+          <p>${place.thesis}</p>
+        </header>
+        <div class="detail-body">
+          <div class="main-col">
+            <div class="block">
+              <h4>独立行程</h4>
+              <div class="timeline">
+                ${place.days.map(slots).join("")}
+              </div>
+            </div>
+          </div>
+          <aside class="side-col">
+            <div class="block">
+              <h4>住宿建议</h4>
+              ${place.hotels.map(hotel => `
+                <div class="hotel">
+                  <strong>${hotel[0]}</strong>
+                  <p>${hotel[1]}</p>
+                </div>
+              `).join("")}
+            </div>
+            <div class="block">
+              <h4>交通节点</h4>
+              <ul class="list">${place.transport.map(item => `<li>${item}</li>`).join("")}</ul>
+            </div>
+            <div class="block">
+              <h4>取舍建议</h4>
+              <ul class="list">${place.advice.map(item => `<li>${item}</li>`).join("")}</ul>
+            </div>
+          </aside>
+        </div>
+      `;
+    }
+
+    bootstrapGeneratedTrip();
+    bindTripSwitcher();
+    renderWorkspaceTab(activeTripTemplate === "australia" ? "overview" : "create");
+    renderPlace("perth");
+    syncStateFromServer().then(() => {
+      if (activeWorkspaceTab === "overview") {
+        renderWorkspaceTab("overview");
+        renderPlace(getActivePlaceId());
+      }
+    });
+  </script>
+</body>
+</html>
