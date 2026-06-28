@@ -1372,6 +1372,7 @@
     const activeVersionIdStorageKey = "australia-trip-active-version-v1";
     const budgetStorageKey = "australia-trip-budget-v1";
     const tripBasicsStorageKey = "group-trip-basics-v1";
+    const tripConstraintsStorageKey = "group-trip-hard-constraints-v1";
     const activeTripTemplateStorageKey = "group-trip-active-template-v1";
     const originalPlaces = JSON.parse(JSON.stringify(places));
     let sharedIdeas = readLocalIdeas();
@@ -1447,6 +1448,37 @@
         avoid: "避免每天高强度出海；避免为了打卡牺牲休息"
       }
     };
+
+    function getDefaultTripConstraints(templateId = activeTripTemplate) {
+      if (templateId === "australia") {
+        return {
+          arrival: "2026-09-26 08:00 Perth 抵达",
+          departure: "2026-10-06 20:40 Sydney -> Beijing，CA 174",
+          nights: "Perth 3晚；Melbourne 2晚；Whitsundays 3晚；Sydney 2晚",
+          lodging: "三人同行，其中一对情侣；优先一套房内两个真实卧室，避免一卧加沙发床",
+          accommodationBudget: "住宿总预算尽量不超过 ¥23,000",
+          fixedItems: [
+            "2026-09-27 至 2026-09-28 携程 Hutt Lagoon 粉红湖 + 尖峰石阵两日游",
+            "粉红湖必须保留",
+            "Rottnest Island、Whitehaven Beach、抱考拉/看袋鼠尽量保留",
+            "10/6 国际返程日必须留足去机场时间"
+          ]
+        };
+      }
+
+      return {
+        arrival: "填写抵达时间、机场/车站和目的地",
+        departure: "填写返程时间、机场/车站和目的地",
+        nights: "填写每个目的地的晚数和顺序",
+        lodging: "填写房型、床型、同住关系、位置偏好等住宿硬要求",
+        accommodationBudget: "填写住宿或全程预算上限",
+        fixedItems: [
+          "填写已经预订或必须保留的交通/酒店/门票",
+          "填写绝对不能删除的景点、体验或日期",
+          "填写需要避开的安排，例如太早起、频繁换酒店、长途折返"
+        ]
+      };
+    }
 
     function escapeHTML(value) {
       return String(value || "").replace(/[&<>"']/g, char => ({
@@ -1537,10 +1569,57 @@
       localStorage.setItem(tripBasicsStorageKey, JSON.stringify(basics));
     }
 
+    function getTripConstraints() {
+      const defaults = getDefaultTripConstraints();
+      try {
+        const saved = JSON.parse(localStorage.getItem(tripConstraintsStorageKey) || "null");
+        if (!saved || typeof saved !== "object") return defaults;
+        return {
+          ...defaults,
+          ...saved,
+          fixedItems: Array.isArray(saved.fixedItems) ? saved.fixedItems : defaults.fixedItems
+        };
+      } catch {
+        return defaults;
+      }
+    }
+
+    function saveTripConstraints(constraints) {
+      localStorage.setItem(tripConstraintsStorageKey, JSON.stringify({
+        arrival: String(constraints.arrival || "").trim(),
+        departure: String(constraints.departure || "").trim(),
+        nights: String(constraints.nights || "").trim(),
+        lodging: String(constraints.lodging || "").trim(),
+        accommodationBudget: String(constraints.accommodationBudget || "").trim(),
+        fixedItems: Array.isArray(constraints.fixedItems)
+          ? constraints.fixedItems.map(item => String(item || "").trim()).filter(Boolean)
+          : []
+      }));
+    }
+
+    function resetTripConstraints() {
+      const constraints = getDefaultTripConstraints();
+      saveTripConstraints(constraints);
+      return constraints;
+    }
+
+    function formatConstraintsForPrompt(constraints = getTripConstraints()) {
+      const fixedItems = Array.isArray(constraints.fixedItems) ? constraints.fixedItems : [];
+      return [
+        `抵达：${constraints.arrival || "未填写"}`,
+        `返程：${constraints.departure || "未填写"}`,
+        `城市晚数/顺序：${constraints.nights || "未填写"}`,
+        `住宿硬要求：${constraints.lodging || "未填写"}`,
+        `住宿/预算硬约束：${constraints.accommodationBudget || "未填写"}`,
+        `固定事项/必须保留：${fixedItems.length ? fixedItems.join("；") : "未填写"}`
+      ].join("\n");
+    }
+
     function setActiveTripTemplate(templateId) {
       activeTripTemplate = tripTemplates[templateId] ? templateId : "australia";
       localStorage.setItem(activeTripTemplateStorageKey, activeTripTemplate);
       saveTripBasics(tripTemplates[activeTripTemplate]);
+      saveTripConstraints(getDefaultTripConstraints(activeTripTemplate));
       document.querySelectorAll("[data-trip-template]").forEach(button => {
         button.classList.toggle("active", button.dataset.tripTemplate === activeTripTemplate);
       });
@@ -1778,23 +1857,13 @@
       }).join("\n\n");
 
       const basics = getTripBasics();
-      return `请基于以下基础约束和同行建议，重排旅行行程。\n\n基础约束：\n目的地：${basics.destination}\n旅行范围：${basics.scope}\n时间：${basics.dates}\n同行人：${basics.travelers}\n预算：${basics.budget}\n节奏偏好：${basics.pace}\n必须保留：${basics.mustGo}\n尽量避免：${basics.avoid}\n\n当前澳洲示例硬约束：9/26 08:00 到珀斯；9/27-9/28 携程粉红湖+尖峰石阵两日游；Perth 3晚、Melbourne 2晚、Whitsundays 3晚、Sydney 2晚；10/6 晚上悉尼飞北京；住宿优先两卧，住宿总预算尽量不超过 ¥23,000。\n\n同行建议：\n${rows || "暂无建议"}`;
+      return `请基于以下基础约束、硬约束和同行建议，重排旅行行程。\n\n基础约束：\n目的地：${basics.destination}\n旅行范围：${basics.scope}\n时间：${basics.dates}\n同行人：${basics.travelers}\n预算：${basics.budget}\n节奏偏好：${basics.pace}\n必须保留：${basics.mustGo}\n尽量避免：${basics.avoid}\n\n硬约束：\n${formatConstraintsForPrompt()}\n\n同行建议：\n${rows || "暂无建议"}`;
     }
 
     function getCurrentTripPayload() {
       return {
         basics: getTripBasics(),
-        constraints: {
-          arrival: "2026-09-26 08:00 Perth",
-          departure: "2026-10-06 20:40 Sydney to Beijing, CA 174",
-          nights: "Perth 3 nights, Melbourne 2 nights, Whitsundays 3 nights, Sydney 2 nights",
-          fixedItems: [
-            "2026-09-27 to 2026-09-28 Ctrip Hutt Lagoon Pink Lake + Pinnacles two-day tour",
-            "Three travelers including one couple",
-            "Prefer one unit with two real bedrooms",
-            "Accommodation budget target under CNY 23,000"
-          ]
-        },
+        constraints: getTripConstraints(),
         places: places
           .filter(place => place.id !== "ideas")
           .map(place => ({
@@ -1895,6 +1964,7 @@
 
     function renderCreateTripTab() {
       const basics = getTripBasics();
+      const constraints = getTripConstraints();
       workspaceBodyEl.innerHTML = `
         <div class="workspace-grid">
           <div class="block">
@@ -1938,6 +2008,37 @@
           </div>
 
           <div class="block">
+            <h4>硬约束维护</h4>
+            <form class="trip-form" id="tripConstraintsForm">
+              <div class="field-grid">
+                <label>抵达时间 / 地点
+                  <input name="arrival" value="${escapeHTML(constraints.arrival)}" placeholder="例如：2026-09-26 08:00 Perth 抵达" />
+                </label>
+                <label>返程时间 / 地点
+                  <input name="departure" value="${escapeHTML(constraints.departure)}" placeholder="例如：2026-10-06 20:40 Sydney -> Beijing" />
+                </label>
+                <label>城市晚数 / 顺序
+                  <input name="nights" value="${escapeHTML(constraints.nights)}" placeholder="例如：Perth 3晚；Melbourne 2晚；Whitsundays 3晚；Sydney 2晚" />
+                </label>
+                <label>住宿预算硬约束
+                  <input name="accommodationBudget" value="${escapeHTML(constraints.accommodationBudget)}" placeholder="例如：住宿总预算不超过 ¥23,000" />
+                </label>
+              </div>
+              <label>住宿硬要求
+                <textarea name="lodging" placeholder="例如：三人同行，其中一对情侣；优先两间真实卧室">${escapeHTML(constraints.lodging)}</textarea>
+              </label>
+              <label>固定事项 / 必须保留，一行一条
+                <textarea name="fixedItems" placeholder="例如：9/27-9/28 粉红湖 + 尖峰石阵两日游">${escapeHTML((constraints.fixedItems || []).join("\n"))}</textarea>
+              </label>
+              <div class="button-row">
+                <button class="action-btn" type="submit">保存硬约束</button>
+                <button class="action-btn secondary" type="button" id="resetConstraints">恢复默认硬约束</button>
+              </div>
+            </form>
+            <div class="note">这里的内容会直接进入在线推演。Agent 后续调整行程时，会优先检查这些不可破坏的时间、地点、晚数、住宿和预算要求。</div>
+          </div>
+
+          <div class="block">
             <h4>生成初版的输入框架</h4>
             <ul class="list">
               <li>目的地可以是国家、城市、省州或多城市路线。</li>
@@ -1966,23 +2067,43 @@
         renderWorkspaceTab("overview");
       });
 
+      document.getElementById("tripConstraintsForm")?.addEventListener("submit", event => {
+        event.preventDefault();
+        const data = new FormData(event.currentTarget);
+        saveTripConstraints({
+          arrival: data.get("arrival"),
+          departure: data.get("departure"),
+          nights: data.get("nights"),
+          lodging: data.get("lodging"),
+          accommodationBudget: data.get("accommodationBudget"),
+          fixedItems: String(data.get("fixedItems") || "").split("\n")
+        });
+        renderWorkspaceTab("overview");
+      });
+
+      document.getElementById("resetConstraints")?.addEventListener("click", () => {
+        resetTripConstraints();
+        renderWorkspaceTab("create");
+      });
+
       document.getElementById("jumpToOverview")?.addEventListener("click", () => renderWorkspaceTab("overview"));
     }
 
     function renderOverviewTab() {
       const basics = getTripBasics();
+      const constraints = getTripConstraints();
       const stops = getRouteOrderedPlaces();
       const totalDays = stops.reduce((sum, place) => sum + (Array.isArray(place.days) ? place.days.length : 0), 0);
       const hotelOptions = stops.reduce((sum, place) => sum + (Array.isArray(place.hotels) ? place.hotels.length : 0), 0);
       const transportNodes = stops.reduce((sum, place) => sum + (Array.isArray(place.transport) ? place.transport.length : 0), 0);
       const generated = getGeneratedTrip();
       const changedPlaceNames = getChangedPlaceNames(stops);
-      const fixedHighlights = [
+      const fixedHighlights = (constraints.fixedItems && constraints.fixedItems.length ? constraints.fixedItems : [
         "9/26 抵达后直接 Rottnest Island",
         "9/27-9/28 粉红湖 + 尖峰石阵两日游",
         "9/30 墨尔本动物线：考拉/袋鼠/企鹅",
         "10/2 Whitehaven + Hill Inlet 作为海岛核心日"
-      ];
+      ]).slice(0, 4);
 
       workspaceBodyEl.innerHTML = `
         <div class="workspace-grid">
@@ -2049,12 +2170,19 @@
               <span class="pill">${escapeHTML(basics.dates)}</span>
             </div>
             <p class="tagline">${escapeHTML(basics.travelers)}</p>
-            <div class="budget-row"><span>预算</span><div class="bar"><span style="width: 78%"></span></div><b>约束</b></div>
+            <div class="budget-row"><span>预算</span><div class="bar"><span style="width: 78%"></span></div><b>硬约束</b></div>
             <div class="budget-row"><span>节奏</span><div class="bar"><span style="width: 62%"></span></div><b>适中</b></div>
             <div class="budget-row"><span>共创</span><div class="bar"><span style="width: ${Math.min(100, getIdeas().length * 18 + 20)}%"></span></div><b>${getIdeas().length} 条</b></div>
-            <div class="note">必须保留：${escapeHTML(basics.mustGo)}</div>
+            <div class="note">
+              <b>抵达</b>：${escapeHTML(constraints.arrival)}<br />
+              <b>返程</b>：${escapeHTML(constraints.departure)}<br />
+              <b>晚数</b>：${escapeHTML(constraints.nights)}<br />
+              <b>住宿</b>：${escapeHTML(constraints.lodging)}<br />
+              <b>预算</b>：${escapeHTML(constraints.accommodationBudget)}
+            </div>
+            <div class="note">固定事项：${escapeHTML((constraints.fixedItems || []).join("；"))}</div>
             <div class="button-row">
-              <button class="action-btn" type="button" id="editBasics">修改基础信息</button>
+              <button class="action-btn" type="button" id="editBasics">修改基础/硬约束</button>
               <button class="action-btn secondary" type="button" id="openIdeasTab">提交想法</button>
             </div>
           </aside>
