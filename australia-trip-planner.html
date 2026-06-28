@@ -359,6 +359,130 @@
       gap: 12px;
     }
 
+    .constraint-section {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fbfcfc;
+      display: grid;
+      gap: 10px;
+    }
+
+    .constraint-section-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .constraint-section-head b {
+      font-size: 13px;
+      color: #23313a;
+    }
+
+    .small-btn {
+      border: 1px solid var(--accent);
+      border-radius: 8px;
+      padding: 7px 9px;
+      background: #fff;
+      color: var(--accent);
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 12px;
+    }
+
+    .destination-list,
+    .sortable-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .destination-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(88px, .45fr) auto;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .destination-row input {
+      min-width: 0;
+    }
+
+    .icon-btn {
+      width: 40px;
+      height: 40px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: #58656f;
+      cursor: pointer;
+      font-weight: 800;
+    }
+
+    .icon-btn:hover {
+      border-color: var(--accent-2);
+      color: var(--accent-2);
+    }
+
+    .order-mode-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(180px, .55fr);
+      gap: 10px;
+      align-items: end;
+    }
+
+    .sortable-item {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: #fff;
+      display: grid;
+      grid-template-columns: 44px minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      cursor: grab;
+    }
+
+    .sortable-item.dragging {
+      opacity: .55;
+      border-color: var(--accent);
+      background: var(--soft);
+    }
+
+    .drag-handle {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 5px 6px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 12px;
+      user-select: none;
+    }
+
+    .sortable-item strong {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 13px;
+    }
+
+    .sortable-item span:last-child {
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .mini-hint {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .is-hidden {
+      display: none !important;
+    }
+
     .chips {
       display: flex;
       flex-wrap: wrap;
@@ -1151,7 +1275,9 @@
       .metric-strip,
       .overview-insights,
       .budget-summary-grid,
-      .workspace-grid {
+      .workspace-grid,
+      .destination-row,
+      .order-mode-row {
         grid-template-columns: 1fr;
       }
 
@@ -1454,7 +1580,14 @@
         return {
           arrival: "2026-09-26 08:00 Perth 抵达",
           departure: "2026-10-06 20:40 Sydney -> Beijing，CA 174",
-          nights: "Perth 3晚；Melbourne 2晚；Whitsundays 3晚；Sydney 2晚",
+          destinations: [
+            { id: "perth", name: "Perth", nights: "3晚" },
+            { id: "melbourne", name: "Melbourne", nights: "2晚" },
+            { id: "whitsundays", name: "Whitsundays", nights: "3晚" },
+            { id: "sydney", name: "Sydney", nights: "2晚" }
+          ],
+          orderMode: "fixed",
+          order: ["perth", "melbourne", "whitsundays", "sydney"],
           lodging: "三人同行，其中一对情侣；优先一套房内两个真实卧室，避免一卧加沙发床",
           accommodationBudget: "住宿总预算尽量不超过 ¥23,000",
           fixedItems: [
@@ -1469,7 +1602,12 @@
       return {
         arrival: "填写抵达时间、机场/车站和目的地",
         departure: "填写返程时间、机场/车站和目的地",
-        nights: "填写每个目的地的晚数和顺序",
+        destinations: [
+          { id: "destination-1", name: "目的地 1", nights: "待定" },
+          { id: "destination-2", name: "目的地 2", nights: "待定" }
+        ],
+        orderMode: "flexible",
+        order: ["destination-1", "destination-2"],
         lodging: "填写房型、床型、同住关系、位置偏好等住宿硬要求",
         accommodationBudget: "填写住宿或全程预算上限",
         fixedItems: [
@@ -1569,14 +1707,92 @@
       localStorage.setItem(tripBasicsStorageKey, JSON.stringify(basics));
     }
 
+    function createConstraintId(name = "destination") {
+      const slug = String(name || "destination")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+      return `${slug || "destination"}-${Math.random().toString(36).slice(2, 7)}`;
+    }
+
+    function normalizeDestinations(destinations) {
+      const seen = new Set();
+      return (Array.isArray(destinations) ? destinations : [])
+        .map((destination, index) => {
+          const name = String(destination?.name || "").trim();
+          if (!name) return null;
+          let id = String(destination?.id || "").trim() || createConstraintId(name);
+          if (seen.has(id)) id = `${id}-${index + 1}`;
+          seen.add(id);
+          return {
+            id,
+            name,
+            nights: String(destination?.nights || "").trim() || "待定"
+          };
+        })
+        .filter(Boolean);
+    }
+
+    function parseDestinationsFromNights(nightsText) {
+      return String(nightsText || "")
+        .split(/[;；,，]/)
+        .map(part => part.trim())
+        .filter(part => part && part !== "未填写")
+        .map(part => {
+          const match = part.match(/^(.+?)\s*(\d+\s*(?:晚|night|nights)|待定)$/i);
+          const name = match ? match[1].trim() : part;
+          const nights = match ? match[2].replace(/\s+/g, "") : "待定";
+          return {
+            id: createConstraintId(name),
+            name,
+            nights
+          };
+        });
+    }
+
+    function getDestinationSummary(destinations = getTripConstraints().destinations) {
+      const rows = normalizeDestinations(destinations);
+      return rows.length ? rows.map(item => `${item.name}（${item.nights}）`).join("；") : "未填写";
+    }
+
+    function getOrderedDestinations(constraints = getTripConstraints()) {
+      const destinations = normalizeDestinations(constraints.destinations);
+      const byId = Object.fromEntries(destinations.map(destination => [destination.id, destination]));
+      const ordered = (Array.isArray(constraints.order) ? constraints.order : [])
+        .map(id => byId[id])
+        .filter(Boolean);
+      const missing = destinations.filter(destination => !ordered.some(item => item.id === destination.id));
+      return [...ordered, ...missing];
+    }
+
+    function getOrderSummary(constraints = getTripConstraints()) {
+      if (constraints.orderMode !== "fixed") return "不固定，允许 Agent 根据交通、价格和体验优化顺序";
+      return getOrderedDestinations(constraints).map(item => item.name).join(" → ") || "固定，但还没有填写地点";
+    }
+
     function getTripConstraints() {
       const defaults = getDefaultTripConstraints();
       try {
         const saved = JSON.parse(localStorage.getItem(tripConstraintsStorageKey) || "null");
         if (!saved || typeof saved !== "object") return defaults;
+        const savedDestinations = normalizeDestinations(saved.destinations);
+        const destinations = savedDestinations.length
+          ? savedDestinations
+          : parseDestinationsFromNights(saved.nights || defaults.nights);
+        const fallbackDestinations = destinations.length ? destinations : normalizeDestinations(defaults.destinations);
+        const validIds = new Set(fallbackDestinations.map(destination => destination.id));
+        const savedOrder = Array.isArray(saved.order) ? saved.order.filter(id => validIds.has(id)) : [];
+        const order = savedOrder.length ? savedOrder : fallbackDestinations.map(destination => destination.id);
+        const orderMode = saved.orderMode
+          ? (saved.orderMode === "flexible" ? "flexible" : "fixed")
+          : (defaults.orderMode || "flexible");
         return {
           ...defaults,
           ...saved,
+          destinations: fallbackDestinations,
+          orderMode,
+          order,
           fixedItems: Array.isArray(saved.fixedItems) ? saved.fixedItems : defaults.fixedItems
         };
       } catch {
@@ -1585,10 +1801,14 @@
     }
 
     function saveTripConstraints(constraints) {
+      const destinations = normalizeDestinations(constraints.destinations);
       localStorage.setItem(tripConstraintsStorageKey, JSON.stringify({
         arrival: String(constraints.arrival || "").trim(),
         departure: String(constraints.departure || "").trim(),
-        nights: String(constraints.nights || "").trim(),
+        destinations,
+        orderMode: constraints.orderMode === "flexible" ? "flexible" : "fixed",
+        order: Array.isArray(constraints.order) ? constraints.order : [],
+        nights: destinations.length ? getDestinationSummary(destinations) : "",
         lodging: String(constraints.lodging || "").trim(),
         accommodationBudget: String(constraints.accommodationBudget || "").trim(),
         fixedItems: Array.isArray(constraints.fixedItems)
@@ -1608,7 +1828,8 @@
       return [
         `抵达：${constraints.arrival || "未填写"}`,
         `返程：${constraints.departure || "未填写"}`,
-        `城市晚数/顺序：${constraints.nights || "未填写"}`,
+        `地点与晚数：${getDestinationSummary(constraints.destinations)}`,
+        `顺序要求：${getOrderSummary(constraints)}`,
         `住宿硬要求：${constraints.lodging || "未填写"}`,
         `住宿/预算硬约束：${constraints.accommodationBudget || "未填写"}`,
         `固定事项/必须保留：${fixedItems.length ? fixedItems.join("；") : "未填写"}`
@@ -1962,6 +2183,137 @@
       });
     }
 
+    function renderDestinationRows(destinations) {
+      const rows = (Array.isArray(destinations) ? destinations : []).map((destination, index) => ({
+        id: String(destination?.id || "").trim() || createConstraintId(destination?.name || `destination-${index + 1}`),
+        name: String(destination?.name || "").trim(),
+        nights: String(destination?.nights || "").trim() || "待定"
+      }));
+      return rows.map(destination => `
+        <div class="destination-row" data-destination-row data-destination-id="${escapeHTML(destination.id)}">
+          <input name="destinationName" value="${escapeHTML(destination.name)}" placeholder="地点，例如 Perth / 东京 / 大理" />
+          <input name="destinationNights" value="${escapeHTML(destination.nights)}" placeholder="晚数，例如 3晚" />
+          <button class="icon-btn" type="button" data-remove-destination aria-label="删除 ${escapeHTML(destination.name)}">×</button>
+        </div>
+      `).join("");
+    }
+
+    function getDestinationRowsFromForm(form) {
+      return [...form.querySelectorAll("[data-destination-row]")].map((row, index) => {
+        const name = row.querySelector("[name='destinationName']")?.value || "";
+        const nights = row.querySelector("[name='destinationNights']")?.value || "";
+        const existingId = row.dataset.destinationId || "";
+        return {
+          id: existingId || createConstraintId(name || `destination-${index + 1}`),
+          name: String(name).trim(),
+          nights: String(nights).trim() || "待定"
+        };
+      }).filter(destination => destination.name);
+    }
+
+    function sortDestinationsForEditor(destinations, order) {
+      const normalized = normalizeDestinations(destinations);
+      const byId = Object.fromEntries(normalized.map(destination => [destination.id, destination]));
+      const ordered = (Array.isArray(order) ? order : []).map(id => byId[id]).filter(Boolean);
+      const missing = normalized.filter(destination => !ordered.some(item => item.id === destination.id));
+      return [...ordered, ...missing];
+    }
+
+    function renderSortableDestinations(destinations, order) {
+      const rows = sortDestinationsForEditor(destinations, order);
+      return rows.map(destination => `
+        <div class="sortable-item" draggable="true" data-sortable-destination="${escapeHTML(destination.id)}">
+          <span class="drag-handle">拖拽</span>
+          <strong>${escapeHTML(destination.name)}</strong>
+          <span>${escapeHTML(destination.nights)}</span>
+        </div>
+      `).join("");
+    }
+
+    function getOrderFromSortableList() {
+      return [...document.querySelectorAll("[data-sortable-destination]")].map(item => item.dataset.sortableDestination);
+    }
+
+    function getDragAfterElement(container, y) {
+      const draggableElements = [...container.querySelectorAll(".sortable-item:not(.dragging)")];
+      return draggableElements.reduce((closest, child) => {
+        const box = child.getBoundingClientRect();
+        const offset = y - box.top - box.height / 2;
+        if (offset < 0 && offset > closest.offset) {
+          return { offset, element: child };
+        }
+        return closest;
+      }, { offset: Number.NEGATIVE_INFINITY }).element;
+    }
+
+    function bindSortableDestinations() {
+      const list = document.getElementById("sortableDestinations");
+      if (!list) return;
+
+      list.querySelectorAll(".sortable-item").forEach(item => {
+        item.addEventListener("dragstart", event => {
+          item.classList.add("dragging");
+          event.dataTransfer.effectAllowed = "move";
+          event.dataTransfer.setData("text/plain", item.dataset.sortableDestination || "");
+        });
+
+        item.addEventListener("dragend", () => {
+          item.classList.remove("dragging");
+        });
+      });
+
+      list.ondragover = event => {
+        event.preventDefault();
+        const dragging = list.querySelector(".dragging");
+        if (!dragging) return;
+        const afterElement = getDragAfterElement(list, event.clientY);
+        if (!afterElement) {
+          list.appendChild(dragging);
+        } else {
+          list.insertBefore(dragging, afterElement);
+        }
+      };
+    }
+
+    function bindConstraintEditor() {
+      const form = document.getElementById("tripConstraintsForm");
+      const list = document.getElementById("destinationRows");
+      const sortable = document.getElementById("sortableDestinations");
+      const orderMode = document.getElementById("orderMode");
+      const orderEditor = document.getElementById("orderEditor");
+      if (!form || !list || !sortable || !orderMode || !orderEditor) return;
+
+      const refreshSortable = () => {
+        const rows = getDestinationRowsFromForm(form);
+        const currentOrder = getOrderFromSortableList();
+        sortable.innerHTML = renderSortableDestinations(rows, currentOrder);
+        bindSortableDestinations();
+      };
+
+      const toggleOrderEditor = () => {
+        orderEditor.classList.toggle("is-hidden", orderMode.value !== "fixed");
+      };
+
+      document.getElementById("addDestination")?.addEventListener("click", () => {
+        const id = createConstraintId("destination");
+        list.insertAdjacentHTML("beforeend", renderDestinationRows([{ id, name: "", nights: "待定" }]));
+        list.querySelector(`[data-destination-id="${CSS.escape(id)}"]`)?.querySelector("input")?.focus();
+        refreshSortable();
+      });
+
+      list.addEventListener("click", event => {
+        const button = event.target.closest("[data-remove-destination]");
+        if (!button) return;
+        button.closest("[data-destination-row]")?.remove();
+        refreshSortable();
+      });
+
+      list.addEventListener("input", refreshSortable);
+      orderMode.addEventListener("change", toggleOrderEditor);
+      toggleOrderEditor();
+      bindSortableDestinations();
+    }
+
     function renderCreateTripTab() {
       const basics = getTripBasics();
       const constraints = getTripConstraints();
@@ -2017,12 +2369,35 @@
                 <label>返程时间 / 地点
                   <input name="departure" value="${escapeHTML(constraints.departure)}" placeholder="例如：2026-10-06 20:40 Sydney -> Beijing" />
                 </label>
-                <label>城市晚数 / 顺序
-                  <input name="nights" value="${escapeHTML(constraints.nights)}" placeholder="例如：Perth 3晚；Melbourne 2晚；Whitsundays 3晚；Sydney 2晚" />
-                </label>
                 <label>住宿预算硬约束
                   <input name="accommodationBudget" value="${escapeHTML(constraints.accommodationBudget)}" placeholder="例如：住宿总预算不超过 ¥23,000" />
                 </label>
+              </div>
+              <div class="constraint-section">
+                <div class="constraint-section-head">
+                  <b>地点和停留晚数</b>
+                  <button class="small-btn" type="button" id="addDestination">添加地点</button>
+                </div>
+                <div class="destination-list" id="destinationRows">
+                  ${renderDestinationRows(constraints.destinations)}
+                </div>
+              </div>
+              <div class="constraint-section">
+                <div class="order-mode-row">
+                  <label>顺序要求
+                    <select name="orderMode" id="orderMode">
+                      <option value="fixed" ${constraints.orderMode === "fixed" ? "selected" : ""}>固定，必须按下面顺序走</option>
+                      <option value="flexible" ${constraints.orderMode === "flexible" ? "selected" : ""}>不固定，让 Agent 优化顺序</option>
+                    </select>
+                  </label>
+                  <p class="mini-hint">固定顺序适合已订交通、酒店或必须按城市走的行程。</p>
+                </div>
+                <div id="orderEditor">
+                  <p class="mini-hint">拖拽地点卡片调整顺序；保存后会作为 Agent 的硬约束。</p>
+                  <div class="sortable-list" id="sortableDestinations">
+                    ${renderSortableDestinations(constraints.destinations, constraints.order)}
+                  </div>
+                </div>
               </div>
               <label>住宿硬要求
                 <textarea name="lodging" placeholder="例如：三人同行，其中一对情侣；优先两间真实卧室">${escapeHTML(constraints.lodging)}</textarea>
@@ -2069,11 +2444,17 @@
 
       document.getElementById("tripConstraintsForm")?.addEventListener("submit", event => {
         event.preventDefault();
+        const form = event.currentTarget;
         const data = new FormData(event.currentTarget);
+        const destinations = getDestinationRowsFromForm(form);
+        const validIds = new Set(destinations.map(destination => destination.id));
+        const order = getOrderFromSortableList().filter(id => validIds.has(id));
         saveTripConstraints({
           arrival: data.get("arrival"),
           departure: data.get("departure"),
-          nights: data.get("nights"),
+          destinations,
+          orderMode: data.get("orderMode"),
+          order: order.length ? order : destinations.map(destination => destination.id),
           lodging: data.get("lodging"),
           accommodationBudget: data.get("accommodationBudget"),
           fixedItems: String(data.get("fixedItems") || "").split("\n")
@@ -2085,6 +2466,8 @@
         resetTripConstraints();
         renderWorkspaceTab("create");
       });
+
+      bindConstraintEditor();
 
       document.getElementById("jumpToOverview")?.addEventListener("click", () => renderWorkspaceTab("overview"));
     }
@@ -2176,7 +2559,8 @@
             <div class="note">
               <b>抵达</b>：${escapeHTML(constraints.arrival)}<br />
               <b>返程</b>：${escapeHTML(constraints.departure)}<br />
-              <b>晚数</b>：${escapeHTML(constraints.nights)}<br />
+              <b>地点</b>：${escapeHTML(getDestinationSummary(constraints.destinations))}<br />
+              <b>顺序</b>：${escapeHTML(getOrderSummary(constraints))}<br />
               <b>住宿</b>：${escapeHTML(constraints.lodging)}<br />
               <b>预算</b>：${escapeHTML(constraints.accommodationBudget)}
             </div>
