@@ -1501,13 +1501,13 @@
     const tripConstraintsStorageKey = "group-trip-hard-constraints-v1";
     const activeTripTemplateStorageKey = "group-trip-active-template-v1";
     const originalPlaces = JSON.parse(JSON.stringify(places));
-    let sharedIdeas = readLocalIdeas();
-    let sharedGeneratedTrip = readLocalGeneratedTrip();
-    let sharedVersions = readLocalVersions();
-    let activeVersionId = localStorage.getItem(activeVersionIdStorageKey) || "";
     let activeWorkspaceTab = "overview";
     let activeTripTemplate = localStorage.getItem(activeTripTemplateStorageKey) || "australia";
     let activePlaceId = "perth";
+    let sharedIdeas = readLocalIdeas();
+    let sharedGeneratedTrip = readLocalGeneratedTrip();
+    let sharedVersions = readLocalVersions();
+    let activeVersionId = localStorage.getItem(scopedStorageKey(activeVersionIdStorageKey)) || "";
     const workspaceTabs = [
       { id: "create", label: "创建行程" },
       { id: "overview", label: "行程总览" },
@@ -1628,6 +1628,22 @@
       }[char]));
     }
 
+    function scopedStorageKey(baseKey, templateId = activeTripTemplate) {
+      return `${baseKey}:${templateId || "australia"}`;
+    }
+
+    function readScopedLocalStorage(baseKey, fallbackValue = null) {
+      const scoped = localStorage.getItem(scopedStorageKey(baseKey));
+      if (scoped !== null) return scoped;
+      if (activeTripTemplate === "australia") return localStorage.getItem(baseKey) ?? fallbackValue;
+      return fallbackValue;
+    }
+
+    function hasScopedLocalStorage(baseKey, templateId = activeTripTemplate) {
+      if (localStorage.getItem(scopedStorageKey(baseKey, templateId)) !== null) return true;
+      return templateId === "australia" && localStorage.getItem(baseKey) !== null;
+    }
+
     function readLocalIdeas() {
       try {
         return JSON.parse(localStorage.getItem(ideaStorageKey) || "[]");
@@ -1638,7 +1654,7 @@
 
     function readLocalGeneratedTrip() {
       try {
-        return JSON.parse(localStorage.getItem(generatedTripStorageKey) || "null");
+        return JSON.parse(readScopedLocalStorage(generatedTripStorageKey, "null") || "null");
       } catch {
         return null;
       }
@@ -1654,21 +1670,51 @@
 
     function readBudgetRows() {
       try {
-        const rows = JSON.parse(localStorage.getItem(budgetStorageKey) || "null");
-        return Array.isArray(rows) && rows.length ? rows : JSON.parse(JSON.stringify(defaultBudgetRows));
+        const rows = JSON.parse(readScopedLocalStorage(budgetStorageKey, "null") || "null");
+        return Array.isArray(rows) && rows.length ? rows : getDefaultBudgetRows();
       } catch {
-        return JSON.parse(JSON.stringify(defaultBudgetRows));
+        return getDefaultBudgetRows();
       }
     }
 
     function saveBudgetRows(rows) {
-      localStorage.setItem(budgetStorageKey, JSON.stringify(rows));
+      localStorage.setItem(scopedStorageKey(budgetStorageKey), JSON.stringify(rows));
     }
 
     function resetBudgetRows() {
-      const rows = JSON.parse(JSON.stringify(defaultBudgetRows));
+      const rows = getDefaultBudgetRows();
       saveBudgetRows(rows);
       return rows;
+    }
+
+    function getDefaultBudgetRows() {
+      if (activeTripTemplate === "australia") return JSON.parse(JSON.stringify(defaultBudgetRows));
+      return getCurrentTemplatePlaces().flatMap(place => ([
+        {
+          id: `${place.id}-activity-default`,
+          placeId: place.id,
+          category: "行程",
+          item: `${place.name} 行程/门票/体验`,
+          amount: 0,
+          note: "按实际安排填写"
+        },
+        {
+          id: `${place.id}-hotel-default`,
+          placeId: place.id,
+          category: "住宿",
+          item: `${place.name} 住宿`,
+          amount: 0,
+          note: "按酒店/公寓价格填写"
+        },
+        {
+          id: `${place.id}-transport-default`,
+          placeId: place.id,
+          category: "交通",
+          item: `${place.name} 交通/接驳`,
+          amount: 0,
+          note: "按航班、火车、打车或租车填写"
+        }
+      ]));
     }
 
     function formatMoney(value) {
@@ -1677,12 +1723,14 @@
     }
 
     function getBudgetSummary(rows) {
+      const placeIds = new Set(getTripPlaceIds());
       const summary = {
         total: 0,
         byCategory: Object.fromEntries(budgetCategories.map(category => [category, 0])),
         byPlace: Object.fromEntries(getTripPlaceIds().map(id => [id, 0]))
       };
       rows.forEach(row => {
+        if (!placeIds.has(row.placeId)) return;
         const amount = Number(row.amount || 0);
         summary.total += amount;
         if (summary.byCategory[row.category] !== undefined) summary.byCategory[row.category] += amount;
@@ -1696,7 +1744,7 @@
       try {
         return {
           ...defaults,
-          ...JSON.parse(localStorage.getItem(tripBasicsStorageKey) || "{}")
+          ...JSON.parse(readScopedLocalStorage(tripBasicsStorageKey, "{}") || "{}")
         };
       } catch {
         return defaults;
@@ -1704,7 +1752,7 @@
     }
 
     function saveTripBasics(basics) {
-      localStorage.setItem(tripBasicsStorageKey, JSON.stringify(basics));
+      localStorage.setItem(scopedStorageKey(tripBasicsStorageKey), JSON.stringify(basics));
     }
 
     function createConstraintId(name = "destination") {
@@ -1774,7 +1822,7 @@
     function getTripConstraints() {
       const defaults = getDefaultTripConstraints();
       try {
-        const saved = JSON.parse(localStorage.getItem(tripConstraintsStorageKey) || "null");
+        const saved = JSON.parse(readScopedLocalStorage(tripConstraintsStorageKey, "null") || "null");
         if (!saved || typeof saved !== "object") return defaults;
         const savedDestinations = normalizeDestinations(saved.destinations);
         const destinations = savedDestinations.length
@@ -1802,7 +1850,7 @@
 
     function saveTripConstraints(constraints) {
       const destinations = normalizeDestinations(constraints.destinations);
-      localStorage.setItem(tripConstraintsStorageKey, JSON.stringify({
+      localStorage.setItem(scopedStorageKey(tripConstraintsStorageKey), JSON.stringify({
         arrival: String(constraints.arrival || "").trim(),
         departure: String(constraints.departure || "").trim(),
         destinations,
@@ -1839,8 +1887,14 @@
     function setActiveTripTemplate(templateId) {
       activeTripTemplate = tripTemplates[templateId] ? templateId : "australia";
       localStorage.setItem(activeTripTemplateStorageKey, activeTripTemplate);
-      saveTripBasics(tripTemplates[activeTripTemplate]);
-      saveTripConstraints(getDefaultTripConstraints(activeTripTemplate));
+      if (!hasScopedLocalStorage(tripBasicsStorageKey)) {
+        saveTripBasics(tripTemplates[activeTripTemplate]);
+      }
+      if (!hasScopedLocalStorage(tripConstraintsStorageKey)) {
+        saveTripConstraints(getDefaultTripConstraints(activeTripTemplate));
+      }
+      sharedGeneratedTrip = readLocalGeneratedTrip();
+      activeVersionId = localStorage.getItem(scopedStorageKey(activeVersionIdStorageKey)) || "";
       activePlaceId = getTripPlaceIds()[0] || "";
       document.querySelectorAll("[data-trip-template]").forEach(button => {
         button.classList.toggle("active", button.dataset.tripTemplate === activeTripTemplate);
@@ -1874,14 +1928,14 @@
 
     function saveGeneratedTrip(plan) {
       sharedGeneratedTrip = plan || null;
-      localStorage.setItem(generatedTripStorageKey, JSON.stringify(plan));
+      localStorage.setItem(scopedStorageKey(generatedTripStorageKey), JSON.stringify(plan));
     }
 
     function clearGeneratedTrip() {
       sharedGeneratedTrip = null;
-      localStorage.removeItem(generatedTripStorageKey);
+      localStorage.removeItem(scopedStorageKey(generatedTripStorageKey));
       activeVersionId = "";
-      localStorage.removeItem(activeVersionIdStorageKey);
+      localStorage.removeItem(scopedStorageKey(activeVersionIdStorageKey));
     }
 
     function getVersions() {
@@ -1896,9 +1950,9 @@
     function saveActiveVersionId(versionId) {
       activeVersionId = versionId || "";
       if (activeVersionId) {
-        localStorage.setItem(activeVersionIdStorageKey, activeVersionId);
+        localStorage.setItem(scopedStorageKey(activeVersionIdStorageKey), activeVersionId);
       } else {
-        localStorage.removeItem(activeVersionIdStorageKey);
+        localStorage.removeItem(scopedStorageKey(activeVersionIdStorageKey));
       }
     }
 
@@ -2235,11 +2289,14 @@
         const state = await fetchJson("/api/state");
         saveIdeas(state.ideas || []);
         saveVersions(state.versions || []);
-        saveActiveVersionId(state.activeVersionId || "");
-        if (state.generatedTrip) {
+        const serverTripTemplate = state.generatedTrip ? (state.generatedTrip.templateId || "australia") : "";
+        const serverActiveVersion = (state.versions || []).find(version => version.id === state.activeVersionId);
+        const serverActiveTemplate = serverActiveVersion ? (serverActiveVersion.templateId || serverActiveVersion.updatedTrip?.templateId || "australia") : serverTripTemplate;
+        saveActiveVersionId(serverActiveTemplate === activeTripTemplate ? state.activeVersionId || "" : activeVersionId);
+        if (state.generatedTrip && serverTripTemplate === activeTripTemplate) {
           saveGeneratedTrip(state.generatedTrip);
           applyGeneratedPlaces(state.generatedTrip.updatedPlaces);
-        } else {
+        } else if (!getGeneratedTrip()) {
           restoreOriginalPlaces();
         }
         refreshNavForCurrentPlace();
@@ -2691,7 +2748,7 @@
     function renderBudgetTab() {
       const rows = readBudgetRows();
       const summary = getBudgetSummary(rows);
-      const placesById = Object.fromEntries(places.map(place => [place.id, place]));
+      const budgetPlaces = getCurrentTemplatePlaces();
       const travelers = 3;
 
       workspaceBodyEl.innerHTML = `
@@ -2714,15 +2771,15 @@
         </div>
 
         <div class="budget-city-grid">
-          ${getTripPlaceIds().map(placeId => {
-            const place = placesById[placeId];
+          ${budgetPlaces.map(budgetPlace => {
+            const placeId = budgetPlace.id;
             const placeRows = rows.filter(row => row.placeId === placeId);
             return `
               <section class="budget-city-card">
                 <div class="budget-city-head">
                   <div>
-                    <h4>${escapeHTML(place?.name || placeId)}</h4>
-                    <p>${escapeHTML(place?.dates || "")}</p>
+                    <h4>${escapeHTML(budgetPlace?.name || placeId)}</h4>
+                    <p>${escapeHTML(budgetPlace?.dates || "")}</p>
                   </div>
                   <div class="budget-city-total">
                     <b>${formatMoney(summary.byPlace[placeId])}</b>
@@ -2756,7 +2813,7 @@
                   </tbody>
                 </table>
                 <div class="budget-tools">
-                  <button class="action-btn secondary" type="button" data-add-budget="${escapeHTML(placeId)}">给${escapeHTML(place?.name || placeId)}加一项</button>
+                  <button class="action-btn secondary" type="button" data-add-budget="${escapeHTML(placeId)}">给${escapeHTML(budgetPlace?.name || placeId)}加一项</button>
                 </div>
               </section>
             `;
