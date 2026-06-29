@@ -1841,10 +1841,12 @@
       localStorage.setItem(activeTripTemplateStorageKey, activeTripTemplate);
       saveTripBasics(tripTemplates[activeTripTemplate]);
       saveTripConstraints(getDefaultTripConstraints(activeTripTemplate));
+      activePlaceId = getTripPlaceIds()[0] || "";
       document.querySelectorAll("[data-trip-template]").forEach(button => {
         button.classList.toggle("active", button.dataset.tripTemplate === activeTripTemplate);
       });
       renderWorkspaceTab(activeTripTemplate === "australia" ? "overview" : "create");
+      renderActiveDetail();
     }
 
     function bindTripSwitcher() {
@@ -1855,7 +1857,7 @@
     }
 
     function getIdeas() {
-      return sharedIdeas;
+      return sharedIdeas.filter(idea => (idea.templateId || "australia") === activeTripTemplate);
     }
 
     function saveIdeas(ideas) {
@@ -1864,6 +1866,9 @@
     }
 
     function getGeneratedTrip() {
+      if (!sharedGeneratedTrip) return null;
+      const templateId = sharedGeneratedTrip.templateId || "australia";
+      if (templateId !== activeTripTemplate) return null;
       return sharedGeneratedTrip;
     }
 
@@ -1880,7 +1885,7 @@
     }
 
     function getVersions() {
-      return sharedVersions;
+      return sharedVersions.filter(version => (version.templateId || version.updatedTrip?.templateId || "australia") === activeTripTemplate);
     }
 
     function saveVersions(versions) {
@@ -1897,8 +1902,72 @@
       }
     }
 
+    function isAustraliaTemplate() {
+      return activeTripTemplate === "australia";
+    }
+
+    function getAustraliaPlaces() {
+      return places.filter(place => place.id !== "ideas");
+    }
+
+    function createEmptyPlaceFromDestination(destination, index = 0) {
+      const name = destination?.name || `目的地 ${index + 1}`;
+      const nights = destination?.nights || "待定";
+      return {
+        id: destination?.id || createConstraintId(name),
+        name,
+        dates: nights,
+        short: `${nights}，待生成行程`,
+        thumb: "https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&w=200&q=80",
+        image: "https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&w=1800&q=80",
+        thesis: "这是新旅行计划里的自定义目的地。先维护基础信息和硬约束，再让 Agent 生成住宿、交通和每日安排。",
+        hotels: [],
+        transport: [],
+        advice: ["还没有生成目的地详情；点击上方“大家的想法”提交偏好后生成新版计划。"],
+        days: []
+      };
+    }
+
+    function normalizeCustomPlace(candidate, fallback) {
+      const base = fallback || createEmptyPlaceFromDestination({
+        id: candidate?.id,
+        name: candidate?.name,
+        nights: candidate?.dates || "待定"
+      });
+      return {
+        ...base,
+        ...candidate,
+        id: candidate?.id || base.id,
+        name: candidate?.name || base.name,
+        dates: candidate?.dates || base.dates,
+        short: candidate?.short || base.short || candidate?.dates || base.dates,
+        thumb: candidate?.thumb || base.thumb,
+        image: candidate?.image || base.image,
+        thesis: candidate?.thesis || base.thesis,
+        hotels: Array.isArray(candidate?.hotels) ? candidate.hotels : base.hotels,
+        transport: Array.isArray(candidate?.transport) ? candidate.transport : base.transport,
+        advice: Array.isArray(candidate?.advice) ? candidate.advice : base.advice,
+        days: Array.isArray(candidate?.days) ? candidate.days : base.days
+      };
+    }
+
+    function getCurrentTemplatePlaces() {
+      if (isAustraliaTemplate()) return getAustraliaPlaces();
+      const constraints = getTripConstraints();
+      const fallbackPlaces = getOrderedDestinations(constraints).map(createEmptyPlaceFromDestination);
+      const generated = getGeneratedTrip();
+      if (Array.isArray(generated?.updatedPlaces) && generated.updatedPlaces.length) {
+        const fallbackById = Object.fromEntries(fallbackPlaces.map(place => [place.id, place]));
+        const validIds = new Set(fallbackPlaces.map(place => place.id));
+        return generated.updatedPlaces
+          .filter(place => validIds.has(place.id))
+          .map(place => normalizeCustomPlace(place, fallbackById[place.id]));
+      }
+      return fallbackPlaces;
+    }
+
     function getTripPlaceIds() {
-      return ["perth", "melbourne", "whitsundays", "sydney"];
+      return getCurrentTemplatePlaces().map(place => place.id);
     }
 
     function parsePlaceStartDate(place, fallbackIndex = 0) {
@@ -1911,8 +1980,8 @@
     }
 
     function getRouteOrderedPlaces() {
-      return getTripPlaceIds()
-        .map((id, index) => ({ place: places.find(item => item.id === id), index }))
+      return getCurrentTemplatePlaces()
+        .map((place, index) => ({ place, index }))
         .filter(item => item.place)
         .sort((a, b) => {
           const dateDiff = parsePlaceStartDate(a.place, a.index) - parsePlaceStartDate(b.place, b.index);
@@ -1938,6 +2007,10 @@
 
     function applyGeneratedPlaces(updatedPlaces) {
       if (!Array.isArray(updatedPlaces)) return false;
+      if (!isAustraliaTemplate()) {
+        const validIds = new Set(getTripPlaceIds());
+        return updatedPlaces.some(place => validIds.has(place.id));
+      }
       const ids = getTripPlaceIds();
       let changed = false;
 
@@ -1955,6 +2028,11 @@
     }
 
     function restoreOriginalPlaces() {
+      if (!isAustraliaTemplate()) {
+        clearGeneratedTrip();
+        activePlaceId = getTripPlaceIds()[0] || "";
+        return;
+      }
       getTripPlaceIds().forEach(id => {
         const currentIndex = places.findIndex(place => place.id === id);
         const fallback = originalPlaces.find(place => place.id === id);
@@ -1967,7 +2045,7 @@
 
     function bootstrapGeneratedTrip() {
       const generated = getGeneratedTrip();
-      if (generated?.updatedPlaces) {
+      if (generated?.updatedPlaces && isAustraliaTemplate()) {
         applyGeneratedPlaces(generated.updatedPlaces);
       }
     }
@@ -1985,6 +2063,7 @@
     }
 
     function hasGeneratedChanges(placeId) {
+      if (!isAustraliaTemplate()) return shouldShowGeneratedBadge(placeId);
       const current = places.find(place => place.id === placeId);
       const original = originalPlaces.find(place => place.id === placeId);
       if (!current || !original || !getGeneratedTrip()?.updatedPlaces) return false;
@@ -2011,6 +2090,9 @@
     function shouldShowGeneratedBadge(placeId) {
       const generated = getGeneratedTrip();
       if (!generated) return false;
+      if (!isAustraliaTemplate()) {
+        return Array.isArray(generated.updatedPlaces) && generated.updatedPlaces.some(place => place.id === placeId);
+      }
       if (Array.isArray(generated.changes) && generated.changes.length) {
         return isPlaceExplicitlyChanged(placeId);
       }
@@ -2024,11 +2106,20 @@
     }
 
     function getActivePlaceId() {
-      return activePlaceId || "perth";
+      return activePlaceId || getTripPlaceIds()[0] || "";
     }
 
     function refreshNavForCurrentPlace() {
       renderNav(getActivePlaceId());
+    }
+
+    function renderActiveDetail() {
+      const placeId = getActivePlaceId();
+      if (placeId) {
+        renderPlace(placeId);
+      } else {
+        renderPlace("");
+      }
     }
 
     function analyzeIdea(idea) {
@@ -2085,8 +2176,8 @@
       return {
         basics: getTripBasics(),
         constraints: getTripConstraints(),
-        places: places
-          .filter(place => place.id !== "ideas")
+        templateId: activeTripTemplate,
+        places: getCurrentTemplatePlaces()
           .map(place => ({
             id: place.id,
             name: place.name,
@@ -2153,7 +2244,8 @@
 
     function renderNav(activeId) {
       if (!nav) return;
-      nav.innerHTML = places.filter(place => place.id !== "ideas").map(place => `
+      const navPlaces = getCurrentTemplatePlaces();
+      nav.innerHTML = navPlaces.map(place => `
         <button type="button" class="${place.id === activeId ? "active" : ""}" data-id="${place.id}" aria-label="打开 ${place.name}">
           <img src="${place.thumb}" alt="" loading="lazy" onerror="this.onerror=null;this.src='https://images.unsplash.com/photo-1523482580672-f109ba8cb9be?auto=format&fit=crop&w=200&q=80';" />
           <span><b>${place.name}</b><small>${place.short}</small></span>
@@ -2459,7 +2551,9 @@
           accommodationBudget: data.get("accommodationBudget"),
           fixedItems: String(data.get("fixedItems") || "").split("\n")
         });
+        activePlaceId = destinations[0]?.id || "";
         renderWorkspaceTab("overview");
+        renderActiveDetail();
       });
 
       document.getElementById("resetConstraints")?.addEventListener("click", () => {
@@ -3092,6 +3186,7 @@
         };
         const idea = {
           id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          templateId: activeTripTemplate,
           name: String(data.get("name") || "").trim(),
           destination: String(data.get("destination") || "全程"),
           category: String(data.get("category") || "想加景点"),
@@ -3157,7 +3252,7 @@
           if (!applied) {
             throw new Error("新版计划格式不完整，暂未更新行程模块。");
           }
-          saveGeneratedTrip(data.updatedTrip);
+          saveGeneratedTrip({ ...data.updatedTrip, templateId: data.updatedTrip.templateId || activeTripTemplate });
           saveIdeas(data.ideas || getIdeas());
           saveVersions(data.versions || (data.version ? [data.version, ...getVersions()] : getVersions()));
           saveActiveVersionId(data.activeVersionId || data.version?.id || "");
@@ -3165,8 +3260,9 @@
           if (activeWorkspaceTab === "overview") {
             renderWorkspaceTab("overview");
           }
+          renderActiveDetail();
           status.textContent = "已生成并更新行程总览和城市模块。";
-          output.innerHTML = renderAgentResult(data.updatedTrip);
+          output.innerHTML = renderAgentResult(getGeneratedTrip());
         } catch (error) {
           status.textContent = "调用失败。";
           const message = error instanceof TypeError && /fetch/i.test(error.message)
@@ -3198,12 +3294,12 @@
       clearIdeas?.addEventListener("click", async () => {
         if (!confirm("确定清空所有人已提交的建议吗？")) return;
         try {
-          const data = await fetchJson("/api/ideas", { method: "DELETE" });
+          const data = await fetchJson(`/api/ideas?templateId=${encodeURIComponent(activeTripTemplate)}`, { method: "DELETE" });
           saveIdeas(data.ideas || []);
           saveVersions(data.versions || getVersions());
           saveActiveVersionId(data.activeVersionId || activeVersionId);
         } catch {
-          saveIdeas([]);
+          saveIdeas(sharedIdeas.filter(idea => (idea.templateId || "australia") !== activeTripTemplate));
         }
         renderIdeaList();
         refreshIdeaExport();
@@ -3211,7 +3307,21 @@
     }
 
     function renderPlace(id) {
-      const place = places.find(item => item.id === id) || places[0];
+      const templatePlaces = getCurrentTemplatePlaces();
+      const place = templatePlaces.find(item => item.id === id) || templatePlaces[0];
+      if (!place) {
+        activePlaceId = "";
+        renderNav("");
+        detail.innerHTML = `
+          <div class="detail-body">
+            <div class="block" style="grid-column: 1 / -1;">
+              <h4>还没有目的地模块</h4>
+              <p>先在“创建行程”里填写地点和硬约束，保存后这里会出现本次旅行自己的目的地模块。</p>
+            </div>
+          </div>
+        `;
+        return;
+      }
       activePlaceId = place.id;
       renderNav(place.id);
       updateActiveRouteStops();
@@ -3231,28 +3341,36 @@
           <div class="main-col">
             <div class="block">
               <h4>独立行程</h4>
-              <div class="timeline">
-                ${place.days.map(slots).join("")}
-              </div>
+              ${Array.isArray(place.days) && place.days.length ? `
+                <div class="timeline">
+                  ${place.days.map(slots).join("")}
+                </div>
+              ` : `
+                <p class="tagline">这个目的地还没有生成每日安排。提交基础约束和同行想法后，Agent 会补齐上午、下午、晚上的行程。</p>
+              `}
             </div>
           </div>
           <aside class="side-col">
             <div class="block">
               <h4>住宿建议</h4>
-              ${place.hotels.map(hotel => `
+              ${Array.isArray(place.hotels) && place.hotels.length ? place.hotels.map(hotel => `
                 <div class="hotel">
                   <strong>${hotel[0]}</strong>
                   <p>${hotel[1]}</p>
                 </div>
-              `).join("")}
+              `).join("") : `<p class="tagline">待生成住宿建议。</p>`}
             </div>
             <div class="block">
               <h4>交通节点</h4>
-              <ul class="list">${place.transport.map(item => `<li>${item}</li>`).join("")}</ul>
+              ${Array.isArray(place.transport) && place.transport.length
+                ? `<ul class="list">${place.transport.map(item => `<li>${item}</li>`).join("")}</ul>`
+                : `<p class="tagline">待生成交通节点。</p>`}
             </div>
             <div class="block">
               <h4>取舍建议</h4>
-              <ul class="list">${place.advice.map(item => `<li>${item}</li>`).join("")}</ul>
+              ${Array.isArray(place.advice) && place.advice.length
+                ? `<ul class="list">${place.advice.map(item => `<li>${item}</li>`).join("")}</ul>`
+                : `<p class="tagline">待生成取舍建议。</p>`}
             </div>
           </aside>
         </div>
@@ -3262,11 +3380,11 @@
     bootstrapGeneratedTrip();
     bindTripSwitcher();
     renderWorkspaceTab(activeTripTemplate === "australia" ? "overview" : "create");
-    renderPlace("perth");
+    renderActiveDetail();
     syncStateFromServer().then(() => {
       if (activeWorkspaceTab === "overview") {
         renderWorkspaceTab("overview");
-        renderPlace(getActivePlaceId());
+        renderActiveDetail();
       }
     });
   </script>

@@ -105,6 +105,7 @@ function normalizeIdea(raw) {
   };
   return {
     id: raw.id || `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    templateId: String(raw.templateId || "australia"),
     name: String(raw.name || "").trim(),
     destination: String(raw.destination || "全程"),
     category: String(raw.category || "想加景点"),
@@ -119,6 +120,12 @@ function buildMessages(payload) {
   const ideas = Array.isArray(payload.ideas) ? payload.ideas : [];
   const currentTrip = payload.trip || {};
   const prompt = payload.prompt || "";
+  const placeIds = Array.isArray(currentTrip.places)
+    ? currentTrip.places.map(place => String(place?.id || "").trim()).filter(Boolean)
+    : [];
+  const placeIdInstruction = placeIds.length
+    ? `updatedPlaces 只能包含当前行程目的地 id：${placeIds.join(", ")}。不要返回不在这个列表里的旧示例城市 id。`
+    : "如果当前行程还没有目的地 id，请先基于硬约束中的地点生成稳定 id，并在 updatedPlaces 中使用这些 id。";
 
   return [
     {
@@ -139,7 +146,8 @@ function buildMessages(payload) {
         "hotels 是二维数组，每项为 [名称, 建议]。",
         "transport 和 advice 是字符串数组。",
         "days 是二维数组，每项为 [日期标题, 上午, 下午, 晚上]。",
-        "updatedPlaces 只包含 perth, melbourne, whitsundays, sydney 四个 id。"
+        placeIdInstruction,
+        "如果这是新的旅行计划，绝对不要沿用澳洲示例中的 Perth/Melbourne/Whitsundays/Sydney，除非这些地点确实在当前行程目的地列表里。"
       ].join("\n")
     },
     {
@@ -159,10 +167,12 @@ function normalizeStringList(value) {
   return value.map(item => String(item || "").trim()).filter(Boolean);
 }
 
-function normalizeGeneratedTrip(plan) {
+function normalizeGeneratedTrip(plan, payload = {}) {
   if (!plan || typeof plan !== "object") return null;
   const agentReport = plan.agentReport && typeof plan.agentReport === "object" ? plan.agentReport : {};
+  const templateId = String(plan.templateId || payload.trip?.templateId || "australia");
   return {
+    templateId,
     summary: String(plan.summary || "已根据大家的建议生成新版行程。"),
     changes: normalizeStringList(plan.changes),
     agentReport: {
@@ -180,6 +190,7 @@ function createVersionRecord(plan) {
   const createdAt = new Date().toISOString();
   return {
     id: `version-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    templateId: plan.templateId || "australia",
     title: `Agent 版本 ${new Date(createdAt).toLocaleString("zh-CN", { hour12: false })}`,
     createdAt,
     summary: plan.summary,
@@ -345,7 +356,12 @@ const server = createServer(async (request, response) => {
   if (url.pathname === "/api/ideas" && request.method === "DELETE") {
     const state = await readState();
     const id = url.searchParams.get("id");
-    const nextIdeas = id ? state.ideas.filter(idea => idea.id !== id) : [];
+    const templateId = url.searchParams.get("templateId");
+    const nextIdeas = id
+      ? state.ideas.filter(idea => idea.id !== id)
+      : templateId
+        ? state.ideas.filter(idea => (idea.templateId || "australia") !== templateId)
+        : [];
     const nextState = await writeState({
       ...state,
       ideas: nextIdeas
@@ -407,12 +423,13 @@ const server = createServer(async (request, response) => {
       const body = await readBody(request);
       const payload = body ? JSON.parse(body) : {};
       const state = await readState();
+      const templateId = String(payload.trip?.templateId || "australia");
       const requestPayload = {
         ...payload,
-        ideas: state.ideas
+        ideas: state.ideas.filter(idea => (idea.templateId || "australia") === templateId)
       };
       const result = await callArk(requestPayload);
-      const normalizedTrip = normalizeGeneratedTrip(result.parsed);
+      const normalizedTrip = normalizeGeneratedTrip(result.parsed, requestPayload);
       const version = normalizedTrip ? createVersionRecord(normalizedTrip) : null;
       const nextState = normalizedTrip
         ? await writeState({
