@@ -1906,8 +1906,19 @@
       return activeTripTemplate === "australia";
     }
 
+    function orderPlacesByConstraints(sourcePlaces, constraints = getTripConstraints()) {
+      const templatePlaces = Array.isArray(sourcePlaces) ? sourcePlaces : [];
+      if (constraints.orderMode !== "fixed") return templatePlaces;
+      const byId = Object.fromEntries(templatePlaces.map(place => [place.id, place]));
+      const ordered = (Array.isArray(constraints.order) ? constraints.order : [])
+        .map(id => byId[id])
+        .filter(Boolean);
+      const missing = templatePlaces.filter(place => !ordered.some(item => item.id === place.id));
+      return [...ordered, ...missing];
+    }
+
     function getAustraliaPlaces() {
-      return places.filter(place => place.id !== "ideas");
+      return orderPlacesByConstraints(places.filter(place => place.id !== "ideas"));
     }
 
     function createEmptyPlaceFromDestination(destination, index = 0) {
@@ -1959,9 +1970,10 @@
       if (Array.isArray(generated?.updatedPlaces) && generated.updatedPlaces.length) {
         const fallbackById = Object.fromEntries(fallbackPlaces.map(place => [place.id, place]));
         const validIds = new Set(fallbackPlaces.map(place => place.id));
-        return generated.updatedPlaces
+        const generatedPlaces = generated.updatedPlaces
           .filter(place => validIds.has(place.id))
           .map(place => normalizeCustomPlace(place, fallbackById[place.id]));
+        return orderPlacesByConstraints(generatedPlaces, constraints);
       }
       return fallbackPlaces;
     }
@@ -1980,7 +1992,9 @@
     }
 
     function getRouteOrderedPlaces() {
-      return getCurrentTemplatePlaces()
+      const currentPlaces = getCurrentTemplatePlaces();
+      if (getTripConstraints().orderMode === "fixed") return currentPlaces;
+      return currentPlaces
         .map((place, index) => ({ place, index }))
         .filter(item => item.place)
         .sort((a, b) => {

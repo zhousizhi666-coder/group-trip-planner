@@ -126,6 +126,10 @@ function buildMessages(payload) {
   const placeIdInstruction = placeIds.length
     ? `updatedPlaces 只能包含当前行程目的地 id：${placeIds.join(", ")}。不要返回不在这个列表里的旧示例城市 id。`
     : "如果当前行程还没有目的地 id，请先基于硬约束中的地点生成稳定 id，并在 updatedPlaces 中使用这些 id。";
+  const constraints = currentTrip.constraints && typeof currentTrip.constraints === "object" ? currentTrip.constraints : {};
+  const fixedOrderInstruction = constraints.orderMode === "fixed"
+    ? `当前用户选择了固定顺序，这是不可改写的硬约束。你必须让 updatedPlaces 按这个顺序输出：${placeIds.join(" -> ")}。如果交通或日期存在冲突，也必须先保留这个顺序，再在 conflicts/nextChecks 中说明需要人工核验或调整航班，不能自行改回其他顺序。`
+    : "当前用户没有固定路线顺序，你可以在不破坏往返和固定事项的前提下优化目的地顺序。";
 
   return [
     {
@@ -135,6 +139,7 @@ function buildMessages(payload) {
         "必须用中文回答。",
         "你要按 Agent 工作流完成：1) 理解硬约束；2) 判断同行建议的优先级和冲突；3) 更新行程；4) 自检日期、城市顺序、住宿偏好和交通时间；5) 给出下一步人工核验事项。",
         "必须优先保证往返日期、城市顺序、航班/交通时间锚点不被随意改动。",
+        fixedOrderInstruction,
         "用户是三人同行，其中一对情侣，住宿偏好是一套房内两个真实卧室。",
         "输出要具体到每个城市的上午、下午、晚上，并说明采纳/不采纳同行建议的原因。",
         "如果建议会破坏硬约束，明确指出冲突，并给替代方案。",
