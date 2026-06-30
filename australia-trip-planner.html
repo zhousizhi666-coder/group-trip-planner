@@ -2637,21 +2637,67 @@
       document.getElementById("jumpToOverview")?.addEventListener("click", () => renderWorkspaceTab("overview"));
     }
 
+    function isPlaceholderValue(value) {
+      return !String(value || "").trim()
+        || /待填写|填写|目的地\s*\d+|新的旅行目的地|城市短途|海岛度假|自定义路线|2-4\s*晚|4-6\s*晚|列出|例如/.test(String(value));
+    }
+
+    function hasConcreteDestinations(destinations) {
+      return normalizeDestinations(destinations).some(destination => !isPlaceholderValue(destination.name));
+    }
+
+    function summarizeStops(stops) {
+      return Array.isArray(stops) && stops.length
+        ? stops.map(place => `${place.name}（${place.short || place.dates || "待定"}）`).join("；")
+        : "未填写";
+    }
+
+    function summarizeStopOrder(stops) {
+      return Array.isArray(stops) && stops.length
+        ? stops.map(place => place.name).join(" → ")
+        : "未填写";
+    }
+
+    function summarizeStopDates(stops) {
+      if (!Array.isArray(stops) || !stops.length) return "未填写";
+      if (stops.length === 1) return stops[0].dates || "未填写";
+      return `${stops[0].dates || "待定"} → ${stops[stops.length - 1].dates || "待定"}`;
+    }
+
+    function getOverviewConstraintDisplay(basics, constraints, stops) {
+      const concreteDestinations = hasConcreteDestinations(constraints.destinations);
+      const inferredScope = stops.length > 1 ? "多城市旅行" : "城市旅行";
+      return {
+        destination: isPlaceholderValue(basics.destination) ? summarizeStopOrder(stops) : basics.destination,
+        scope: isPlaceholderValue(basics.scope) || (stops.length > 1 && basics.scope === "城市旅行") ? inferredScope : basics.scope,
+        dates: isPlaceholderValue(basics.dates) ? summarizeStopDates(stops) : basics.dates,
+        travelers: isPlaceholderValue(basics.travelers) ? "同行人未填写" : basics.travelers,
+        pace: isPlaceholderValue(basics.pace) ? "待填写" : basics.pace,
+        arrival: isPlaceholderValue(constraints.arrival) ? "未填写；请在创建行程补充" : constraints.arrival,
+        departure: isPlaceholderValue(constraints.departure) ? "未填写；请在创建行程补充" : constraints.departure,
+        destinations: concreteDestinations ? getDestinationSummary(constraints.destinations) : summarizeStops(stops),
+        order: concreteDestinations ? getOrderSummary(constraints) : summarizeStopOrder(stops),
+        lodging: isPlaceholderValue(constraints.lodging) ? "未填写；请在创建行程补充房型、床型和位置要求" : constraints.lodging,
+        budget: isPlaceholderValue(constraints.accommodationBudget)
+          ? (isPlaceholderValue(basics.budget) ? "未填写；请在创建行程补充预算上限" : basics.budget)
+          : constraints.accommodationBudget,
+        fixedItems: Array.isArray(constraints.fixedItems) && constraints.fixedItems.some(item => !isPlaceholderValue(item))
+          ? constraints.fixedItems.filter(item => !isPlaceholderValue(item))
+          : stops.slice(0, 4).map(place => `${place.name}：${place.thesis || place.short || place.dates}`)
+      };
+    }
+
     function renderOverviewTab() {
       const basics = getTripBasics();
       const constraints = getTripConstraints();
       const stops = getRouteOrderedPlaces();
+      const display = getOverviewConstraintDisplay(basics, constraints, stops);
       const totalDays = stops.reduce((sum, place) => sum + (Array.isArray(place.days) ? place.days.length : 0), 0);
       const hotelOptions = stops.reduce((sum, place) => sum + (Array.isArray(place.hotels) ? place.hotels.length : 0), 0);
       const transportNodes = stops.reduce((sum, place) => sum + (Array.isArray(place.transport) ? place.transport.length : 0), 0);
       const generated = getGeneratedTrip();
       const changedPlaceNames = getChangedPlaceNames(stops);
-      const fixedHighlights = (constraints.fixedItems && constraints.fixedItems.length ? constraints.fixedItems : [
-        "9/26 抵达后直接 Rottnest Island",
-        "9/27-9/28 粉红湖 + 尖峰石阵两日游",
-        "9/30 墨尔本动物线：考拉/袋鼠/企鹅",
-        "10/2 Whitehaven + Hill Inlet 作为海岛核心日"
-      ]).slice(0, 4);
+      const fixedHighlights = display.fixedItems.slice(0, 4);
 
       workspaceBodyEl.innerHTML = `
         <div class="workspace-grid">
@@ -2663,8 +2709,8 @@
                   <p>点击任一城市节点，下方会切换到对应的住宿、交通和每日安排模块。</p>
                 </div>
                 <div class="pill-row">
-                  <span class="pill">${escapeHTML(basics.scope)}</span>
-                  <span class="pill">${escapeHTML(basics.dates)}</span>
+                  <span class="pill">${escapeHTML(display.scope)}</span>
+                  <span class="pill">${escapeHTML(display.dates)}</span>
                 </div>
               </div>
               <div class="route-flow">
@@ -2700,7 +2746,7 @@
                 </div>
                 <div class="overview-insight">
                   <b>住宿策略</b>
-                  <p>三人同行优先一套两卧；圣灵群岛可适当贵，珀斯、墨尔本、悉尼负责控总预算。</p>
+                  <p>${escapeHTML(display.lodging)}；预算口径：${escapeHTML(display.budget)}。</p>
                 </div>
                 <div class="overview-insight">
                   <b>交通硬点</b>
@@ -2713,23 +2759,23 @@
           <aside class="budget-panel">
             <h3>基础约束</h3>
             <div class="pill-row">
-              <span class="pill">${escapeHTML(basics.destination)}</span>
-              <span class="pill">${escapeHTML(basics.scope)}</span>
-              <span class="pill">${escapeHTML(basics.dates)}</span>
+              <span class="pill">${escapeHTML(display.destination)}</span>
+              <span class="pill">${escapeHTML(display.scope)}</span>
+              <span class="pill">${escapeHTML(display.dates)}</span>
             </div>
-            <p class="tagline">${escapeHTML(basics.travelers)}</p>
+            <p class="tagline">${escapeHTML(display.travelers)}</p>
             <div class="budget-row"><span>预算</span><div class="bar"><span style="width: 78%"></span></div><b>硬约束</b></div>
-            <div class="budget-row"><span>节奏</span><div class="bar"><span style="width: 62%"></span></div><b>适中</b></div>
+            <div class="budget-row"><span>节奏</span><div class="bar"><span style="width: 62%"></span></div><b>${escapeHTML(display.pace)}</b></div>
             <div class="budget-row"><span>共创</span><div class="bar"><span style="width: ${Math.min(100, getIdeas().length * 18 + 20)}%"></span></div><b>${getIdeas().length} 条</b></div>
             <div class="note">
-              <b>抵达</b>：${escapeHTML(constraints.arrival)}<br />
-              <b>返程</b>：${escapeHTML(constraints.departure)}<br />
-              <b>地点</b>：${escapeHTML(getDestinationSummary(constraints.destinations))}<br />
-              <b>顺序</b>：${escapeHTML(getOrderSummary(constraints))}<br />
-              <b>住宿</b>：${escapeHTML(constraints.lodging)}<br />
-              <b>预算</b>：${escapeHTML(constraints.accommodationBudget)}
+              <b>抵达</b>：${escapeHTML(display.arrival)}<br />
+              <b>返程</b>：${escapeHTML(display.departure)}<br />
+              <b>地点</b>：${escapeHTML(display.destinations)}<br />
+              <b>顺序</b>：${escapeHTML(display.order)}<br />
+              <b>住宿</b>：${escapeHTML(display.lodging)}<br />
+              <b>预算</b>：${escapeHTML(display.budget)}
             </div>
-            <div class="note">固定事项：${escapeHTML((constraints.fixedItems || []).join("；"))}</div>
+            <div class="note">固定事项：${escapeHTML(display.fixedItems.join("；"))}</div>
             <div class="button-row">
               <button class="action-btn" type="button" id="editBasics">修改基础/硬约束</button>
               <button class="action-btn secondary" type="button" id="openIdeasTab">提交想法</button>
