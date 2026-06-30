@@ -2078,10 +2078,13 @@
       if (Array.isArray(generated?.updatedPlaces) && generated.updatedPlaces.length) {
         const fallbackById = Object.fromEntries(fallbackPlaces.map(place => [place.id, place]));
         const validIds = new Set(fallbackPlaces.map(place => place.id));
-        const generatedPlaces = generated.updatedPlaces
-          .filter(place => validIds.has(place.id))
-          .map(place => normalizeCustomPlace(place, fallbackById[place.id]));
-        return orderPlacesByConstraints(generatedPlaces, constraints);
+        const generatedById = Object.fromEntries(
+          generated.updatedPlaces
+            .filter(place => validIds.has(place.id))
+            .map(place => [place.id, normalizeCustomPlace(place, fallbackById[place.id])])
+        );
+        const mergedPlaces = fallbackPlaces.map(place => generatedById[place.id] || place);
+        return orderPlacesByConstraints(mergedPlaces, constraints);
       }
       return orderPlacesByConstraints(fallbackPlaces, constraints);
     }
