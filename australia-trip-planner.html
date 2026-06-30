@@ -1541,7 +1541,8 @@
         budget: "住宿总预算尽量不超过 ¥23,000",
         pace: "适中，圣灵群岛放松，城市段不塞太满",
         mustGo: "Hutt Lagoon 粉红湖、尖峰石阵、Rottnest Island、Whitehaven Beach、抱考拉/看袋鼠、悉尼经典城市线",
-        avoid: "不把长距离景点硬塞进唯一完整白天；避免一卧加沙发床"
+        avoid: "不把长距离景点硬塞进唯一完整白天；避免一卧加沙发床",
+        requirements: "三人同行，其中一对情侣；住宿尽量两间真实卧室；粉红湖、圣灵群岛和动物体验优先保留。"
       },
       new: {
         destination: "新的旅行目的地",
@@ -1551,7 +1552,8 @@
         budget: "待填写",
         pace: "待填写：轻松 / 适中 / 紧凑",
         mustGo: "列出必须去的地点、体验或餐厅",
-        avoid: "列出不想要的节奏、住宿、交通或预算限制"
+        avoid: "列出不想要的节奏、住宿、交通或预算限制",
+        requirements: "用自然语言写下这趟旅行的诉求，例如同行人、预算、住宿、必须去、不要太早起等。"
       },
       city: {
         destination: "城市短途",
@@ -1561,7 +1563,8 @@
         budget: "住宿便利优先，预算适中",
         pace: "轻松到适中，减少跨区折返",
         mustGo: "城市核心景点、当地餐厅、一个特色体验",
-        avoid: "避免每天换酒店；避免把远郊景点塞进同一天"
+        avoid: "避免每天换酒店；避免把远郊景点塞进同一天",
+        requirements: "希望城市动线顺，不频繁折返；住宿交通方便；保留当地餐厅和一个特色体验。"
       },
       island: {
         destination: "海岛度假",
@@ -1571,7 +1574,8 @@
         budget: "酒店/度假村体验优先，其他项目弹性控制",
         pace: "轻松，保留天气弹性日",
         mustGo: "优质住宿、出海/浮潜、日落、至少一个完全休息半天",
-        avoid: "避免每天高强度出海；避免为了打卡牺牲休息"
+        avoid: "避免每天高强度出海；避免为了打卡牺牲休息",
+        requirements: "度假体验优先，保留天气弹性日；住宿和出海体验比打卡数量更重要。"
       }
     };
 
@@ -1755,6 +1759,38 @@
       localStorage.setItem(scopedStorageKey(tripBasicsStorageKey), JSON.stringify(basics));
     }
 
+    function getBasicsDateRange(basics = getTripBasics()) {
+      const matches = String(basics.dates || "").match(/\d{4}-\d{2}-\d{2}/g) || [];
+      return {
+        start: matches[0] || "",
+        end: matches[1] || matches[0] || ""
+      };
+    }
+
+    function formatDateRange(start, end) {
+      if (start && end) return `${start} - ${end}`;
+      return start || end || "待填写";
+    }
+
+    function getNightCount(start, end) {
+      if (!start || !end) return "待定";
+      const startDate = new Date(`${start}T00:00:00`);
+      const endDate = new Date(`${end}T00:00:00`);
+      const diff = Math.round((endDate - startDate) / 86400000);
+      return diff > 0 ? `${diff}晚` : "待定";
+    }
+
+    function buildQuickStartPrompt(basics = getTripBasics()) {
+      return [
+        "请基于用户刚输入的目的地、日期和自然语言诉求，直接生成一版可讨论的初版旅行计划。",
+        `目的地：${basics.destination || "未填写"}`,
+        `时间：${basics.dates || "未填写"}`,
+        `用户诉求：${basics.requirements || basics.mustGo || "未填写"}`,
+        "如果目的地是国家、省州或多城市路线，你可以自行拆分 2-6 个最合理的目的地模块；如果是单城市旅行，就按城市内区域/天数规划。",
+        "请把 updatedPlaces 作为最终目的地模块输出，每个模块都要有稳定 id、地点名、日期、抽象目标和每天上午/下午/晚上的安排。"
+      ].join("\n");
+    }
+
     const destinationIdAliases = {
       "perth": "perth",
       "珀斯": "perth",
@@ -1782,13 +1818,15 @@
       return slugifyDestinationId(name);
     }
 
-    function normalizeDestinations(destinations) {
+    function normalizeDestinations(destinations, options = {}) {
       const seen = new Set();
       return (Array.isArray(destinations) ? destinations : [])
         .map((destination, index) => {
           const name = String(destination?.name || "").trim();
           if (!name) return null;
-          let id = createConstraintId(name);
+          let id = options.preserveIds
+            ? String(destination?.id || "").trim() || createConstraintId(name)
+            : createConstraintId(name);
           if (seen.has(id)) id = `${id}-${index + 1}`;
           seen.add(id);
           return {
@@ -1962,7 +2000,7 @@
 
     function saveGeneratedTrip(plan) {
       sharedGeneratedTrip = plan
-        ? { ...plan, constraintsFingerprint: plan.constraintsFingerprint || getConstraintsFingerprint() }
+        ? { ...plan, constraintsFingerprint: getConstraintsFingerprint() }
         : null;
       localStorage.setItem(scopedStorageKey(generatedTripStorageKey), JSON.stringify(sharedGeneratedTrip));
     }
@@ -2315,15 +2353,17 @@
       }).join("\n\n");
 
       const basics = getTripBasics();
-      return `请基于以下基础约束、硬约束和同行建议，重排旅行行程。\n\n基础约束：\n目的地：${basics.destination}\n旅行范围：${basics.scope}\n时间：${basics.dates}\n同行人：${basics.travelers}\n预算：${basics.budget}\n节奏偏好：${basics.pace}\n必须保留：${basics.mustGo}\n尽量避免：${basics.avoid}\n\n硬约束：\n${formatConstraintsForPrompt()}\n\n同行建议：\n${rows || "暂无建议"}`;
+      return `请基于以下基础约束、硬约束和同行建议，重排旅行行程。\n\n基础约束：\n目的地：${basics.destination}\n旅行范围：${basics.scope}\n时间：${basics.dates}\n自然语言诉求：${basics.requirements || "未填写"}\n同行人：${basics.travelers}\n预算：${basics.budget}\n节奏偏好：${basics.pace}\n必须保留：${basics.mustGo}\n尽量避免：${basics.avoid}\n\n硬约束：\n${formatConstraintsForPrompt()}\n\n同行建议：\n${rows || "暂无建议"}`;
     }
 
-    function getCurrentTripPayload() {
+    function getCurrentTripPayload(options = {}) {
       return {
         basics: getTripBasics(),
         constraints: getTripConstraints(),
         constraintsFingerprint: getConstraintsFingerprint(),
         templateId: activeTripTemplate,
+        allowNewPlaces: Boolean(options.allowNewPlaces),
+        generationMode: options.generationMode || "iterate",
         places: getCurrentTemplatePlaces()
           .map(place => ({
             id: place.id,
@@ -2337,6 +2377,89 @@
             days: place.days
           }))
       };
+    }
+
+    function extractNightsFromPlace(place) {
+      const text = `${place?.dates || ""} ${place?.objective || ""}`;
+      const match = text.match(/(\d+)\s*晚/);
+      return match ? `${match[1]}晚` : "待定";
+    }
+
+    function adoptGeneratedDestinations(updatedPlaces) {
+      const generatedPlaces = Array.isArray(updatedPlaces) ? updatedPlaces.filter(place => place?.name) : [];
+      if (!generatedPlaces.length) return false;
+      const destinations = normalizeDestinations(generatedPlaces.map((place, index) => ({
+        id: place.id || createConstraintId(place.name || `destination-${index + 1}`),
+        name: place.name,
+        nights: extractNightsFromPlace(place)
+      })), { preserveIds: true });
+      const current = getTripConstraints();
+      saveTripConstraints({
+        ...current,
+        destinations,
+        orderMode: "fixed",
+        order: destinations.map(destination => destination.id)
+      });
+      activePlaceId = destinations[0]?.id || "";
+      return true;
+    }
+
+    async function generateTripPlan({
+      prompt,
+      allowNewPlaces = false,
+      generationMode = "iterate",
+      statusEl,
+      outputEl,
+      buttonEl,
+      successMessage = "已生成并更新行程总览和城市模块。"
+    } = {}) {
+      if (statusEl) statusEl.textContent = "正在生成新版计划...";
+      if (outputEl) outputEl.textContent = "生成中，请稍等。";
+      if (buttonEl) buttonEl.disabled = true;
+
+      try {
+        const response = await fetch(getApiEndpoint(), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            trip: getCurrentTripPayload({ allowNewPlaces, generationMode }),
+            prompt: prompt || buildIdeaExport()
+          })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.error || `请求失败：HTTP ${response.status}`);
+        }
+        if (!data.updatedTrip?.updatedPlaces) {
+          throw new Error("已收到模型回复，但没有拿到可更新行程模块的结构化结果。");
+        }
+        if (allowNewPlaces) {
+          adoptGeneratedDestinations(data.updatedTrip.updatedPlaces);
+        }
+        const applied = applyGeneratedPlaces(data.updatedTrip.updatedPlaces);
+        if (!applied) {
+          throw new Error("新版计划格式不完整，暂未更新行程模块。");
+        }
+        saveGeneratedTrip({ ...data.updatedTrip, templateId: data.updatedTrip.templateId || activeTripTemplate });
+        saveIdeas(data.ideas || getIdeas());
+        saveVersions(data.versions || (data.version ? [data.version, ...getVersions()] : getVersions()));
+        saveActiveVersionId(data.activeVersionId || data.version?.id || "");
+        refreshNavForCurrentPlace();
+        renderWorkspaceTab("overview");
+        renderActiveDetail();
+        if (statusEl) statusEl.textContent = successMessage;
+        if (outputEl) outputEl.innerHTML = renderAgentResult(getGeneratedTrip());
+        return data;
+      } catch (error) {
+        if (statusEl) statusEl.textContent = "调用失败。";
+        const message = error instanceof TypeError && /fetch/i.test(error.message)
+          ? "在线推演服务暂时不可用，请确认网站服务已经启动后再试。"
+          : (error.message || "在线推演服务暂时不可用，请稍后再试。");
+        if (outputEl) outputEl.textContent = message;
+        throw error;
+      } finally {
+        if (buttonEl) buttonEl.disabled = false;
+      }
     }
 
     function getApiEndpoint() {
@@ -2563,45 +2686,31 @@
     function renderCreateTripTab() {
       const basics = getTripBasics();
       const constraints = getTripConstraints();
+      const quickDates = getBasicsDateRange(basics);
       workspaceBodyEl.innerHTML = `
         <div class="workspace-grid">
           <div class="block">
-            <h4>输入基础旅行信息</h4>
+            <h4>快速创建行程</h4>
             <form class="trip-form" id="tripBasicsForm">
               <div class="field-grid">
                 <label>目的地
                   <input name="destination" value="${escapeHTML(basics.destination)}" placeholder="例如：澳大利亚 / 日本 / 上海 / 云南" />
                 </label>
-                <label>旅行范围
-                  <select name="scope">
-                    ${["国家旅行", "城市旅行", "省州旅行", "多城市旅行", "自定义路线"].map(scope => `
-                      <option value="${scope}" ${basics.scope === scope ? "selected" : ""}>${scope}</option>
-                    `).join("")}
-                  </select>
+                <label>开始日期
+                  <input type="date" name="startDate" value="${escapeHTML(quickDates.start)}" />
                 </label>
-                <label>旅行时间
-                  <input name="dates" value="${escapeHTML(basics.dates)}" placeholder="例如：2026-09-26 - 2026-10-06" />
-                </label>
-                <label>同行人
-                  <input name="travelers" value="${escapeHTML(basics.travelers)}" placeholder="例如：3 人，其中一对情侣" />
-                </label>
-                <label>预算偏好
-                  <input name="budget" value="${escapeHTML(basics.budget)}" placeholder="例如：住宿总预算 ¥23,000 以内" />
-                </label>
-                <label>节奏偏好
-                  <input name="pace" value="${escapeHTML(basics.pace)}" placeholder="例如：轻松 / 适中 / 紧凑" />
+                <label>结束日期
+                  <input type="date" name="endDate" value="${escapeHTML(quickDates.end)}" />
                 </label>
               </div>
-              <label>必须去 / 必须保留
-                <textarea name="mustGo" placeholder="例如：粉红湖、白天堂沙滩、抱考拉">${escapeHTML(basics.mustGo)}</textarea>
-              </label>
-              <label>尽量避免 / 特殊限制
-                <textarea name="avoid" placeholder="例如：不想太早起；不要住一卧加沙发床；不想频繁换酒店">${escapeHTML(basics.avoid)}</textarea>
+              <label>这段旅程的基础诉求
+                <textarea name="requirements" placeholder="例如：3 个人，其中一对情侣；住宿要两室；预算不要太高；想要轻松一点；必须去粉红湖和圣灵群岛；不想太早起。">${escapeHTML(basics.requirements || basics.mustGo || "")}</textarea>
               </label>
               <div class="button-row">
-                <button class="action-btn" type="submit">保存基础信息</button>
+                <button class="action-btn" type="submit" id="quickGenerateTrip">快速生成初版行程</button>
                 <button class="action-btn secondary" type="button" id="jumpToOverview">查看当前行程</button>
               </div>
+              <p class="tagline" id="quickGenerateStatus">只需要先填目的地和日期；其他偏好直接写成自然语言即可。</p>
             </form>
           </div>
 
@@ -2652,40 +2761,68 @@
                 <textarea name="fixedItems" placeholder="例如：9/27-9/28 粉红湖 + 尖峰石阵两日游">${escapeHTML((constraints.fixedItems || []).join("\n"))}</textarea>
               </label>
               <div class="button-row">
-                <button class="action-btn" type="submit">保存硬约束</button>
+                <button class="action-btn" type="submit" id="saveConstraintsAndGenerate">保存并重新生成</button>
                 <button class="action-btn secondary" type="button" id="resetConstraints">恢复默认硬约束</button>
               </div>
             </form>
-            <div class="note">这里的内容会直接进入在线推演。Agent 后续调整行程时，会优先检查这些不可破坏的时间、地点、晚数、住宿和预算要求。</div>
+            <div class="note" id="constraintGenerateStatus">这里的内容会直接进入在线推演。点击保存后会自动生成一次新版行程。</div>
           </div>
 
           <div class="block">
-            <h4>生成初版的输入框架</h4>
+            <h4>后续怎么共创</h4>
             <ul class="list">
-              <li>目的地可以是国家、城市、省州或多城市路线。</li>
-              <li>必须去的地方会作为硬约束，其他景点按时间和交通取舍。</li>
-              <li>节奏、预算、住宿房型、同行人结构会影响每天上午/下午/晚上的安排。</li>
-              <li>生成初版后，大家再在现有行程上提交想法，形成新版计划。</li>
+              <li>先用上方三个输入快速生成初版。</li>
+              <li>如果要锁死航班、酒店、城市顺序，再改硬约束并保存。</li>
+              <li>大家的想法模块仍然单独收集建议，并可单独触发一次共创生成。</li>
             </ul>
-            <div class="note">当前页面先用澳洲 10 晚作为完整示例；换下一次旅行时，只需要先改这里的基础信息，再逐步替换目的地模块。</div>
+            <div class="note">硬约束保存会默认重排当前行程；共创模块的“生成新版计划”只在你收集同行建议后使用。</div>
           </div>
         </div>
       `;
 
-      document.getElementById("tripBasicsForm")?.addEventListener("submit", event => {
+      document.getElementById("tripBasicsForm")?.addEventListener("submit", async event => {
         event.preventDefault();
         const data = new FormData(event.currentTarget);
-        saveTripBasics({
+        const destination = String(data.get("destination") || "").trim();
+        const startDate = String(data.get("startDate") || "").trim();
+        const endDate = String(data.get("endDate") || "").trim();
+        const requirements = String(data.get("requirements") || "").trim();
+        const dates = formatDateRange(startDate, endDate);
+        const nights = getNightCount(startDate, endDate);
+        const basicsPayload = {
           destination: String(data.get("destination") || "").trim(),
-          scope: String(data.get("scope") || "").trim(),
-          dates: String(data.get("dates") || "").trim(),
-          travelers: String(data.get("travelers") || "").trim(),
-          budget: String(data.get("budget") || "").trim(),
-          pace: String(data.get("pace") || "").trim(),
-          mustGo: String(data.get("mustGo") || "").trim(),
-          avoid: String(data.get("avoid") || "").trim()
+          scope: "自动判断",
+          dates,
+          travelers: basics.travelers,
+          budget: basics.budget,
+          pace: basics.pace,
+          mustGo: requirements,
+          avoid: basics.avoid,
+          requirements
+        };
+        saveTripBasics(basicsPayload);
+        const destinationId = createConstraintId(destination || "destination");
+        saveTripConstraints({
+          ...getTripConstraints(),
+          arrival: startDate ? `${startDate} 抵达 ${destination || "目的地"}` : "",
+          departure: endDate ? `${endDate} 返程` : "",
+          destinations: destination ? [{ id: destinationId, name: destination, nights }] : [],
+          orderMode: "flexible",
+          order: destination ? [destinationId] : [],
+          fixedItems: requirements ? [requirements] : []
         });
-        renderWorkspaceTab("overview");
+        clearGeneratedTrip();
+        try {
+          await fetchJson("/api/reset-plan", { method: "POST" });
+        } catch {}
+        await generateTripPlan({
+          prompt: buildQuickStartPrompt(basicsPayload),
+          allowNewPlaces: true,
+          generationMode: "initial",
+          statusEl: document.getElementById("quickGenerateStatus"),
+          buttonEl: document.getElementById("quickGenerateTrip"),
+          successMessage: "已生成初版行程，可以进入总览继续调整。"
+        }).catch(() => {});
       });
 
       document.getElementById("tripConstraintsForm")?.addEventListener("submit", async event => {
@@ -2711,8 +2848,16 @@
           await fetchJson("/api/reset-plan", { method: "POST" });
         } catch {}
         activePlaceId = nextConstraints.order[0] || destinations[0]?.id || "";
-        renderWorkspaceTab("overview");
-        renderActiveDetail();
+        await generateTripPlan({
+          prompt: buildIdeaExport(),
+          generationMode: "constraints",
+          statusEl: document.getElementById("constraintGenerateStatus"),
+          buttonEl: document.getElementById("saveConstraintsAndGenerate"),
+          successMessage: "已保存硬约束，并基于新约束重新生成行程。"
+        }).catch(() => {
+          renderWorkspaceTab("overview");
+          renderActiveDetail();
+        });
       });
 
       document.getElementById("resetConstraints")?.addEventListener("click", () => {
@@ -3433,50 +3578,14 @@
       generateAI?.addEventListener("click", async () => {
         const status = document.getElementById("aiStatus");
         const output = document.getElementById("aiOutput");
-        status.textContent = "正在生成新版计划...";
-        output.textContent = "生成中，请稍等。";
-        generateAI.disabled = true;
-
-        try {
-          const response = await fetch(getApiEndpoint(), {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              trip: getCurrentTripPayload(),
-              prompt: buildIdeaExport()
-            })
-          });
-          const data = await response.json().catch(() => ({}));
-          if (!response.ok) {
-            throw new Error(data.error || `请求失败：HTTP ${response.status}`);
-          }
-          if (!data.updatedTrip?.updatedPlaces) {
-            throw new Error("已收到模型回复，但没有拿到可更新行程模块的结构化结果。");
-          }
-          const applied = applyGeneratedPlaces(data.updatedTrip.updatedPlaces);
-          if (!applied) {
-            throw new Error("新版计划格式不完整，暂未更新行程模块。");
-          }
-          saveGeneratedTrip({ ...data.updatedTrip, templateId: data.updatedTrip.templateId || activeTripTemplate });
-          saveIdeas(data.ideas || getIdeas());
-          saveVersions(data.versions || (data.version ? [data.version, ...getVersions()] : getVersions()));
-          saveActiveVersionId(data.activeVersionId || data.version?.id || "");
-          refreshNavForCurrentPlace();
-          if (activeWorkspaceTab === "overview") {
-            renderWorkspaceTab("overview");
-          }
-          renderActiveDetail();
-          status.textContent = "已生成并更新行程总览和城市模块。";
-          output.innerHTML = renderAgentResult(getGeneratedTrip());
-        } catch (error) {
-          status.textContent = "调用失败。";
-          const message = error instanceof TypeError && /fetch/i.test(error.message)
-            ? "在线推演服务暂时不可用，请确认网站服务已经启动后再试。"
-            : (error.message || "在线推演服务暂时不可用，请稍后再试。");
-          output.textContent = message;
-        } finally {
-          generateAI.disabled = false;
-        }
+        await generateTripPlan({
+          prompt: buildIdeaExport(),
+          generationMode: "collaboration",
+          statusEl: status,
+          outputEl: output,
+          buttonEl: generateAI,
+          successMessage: "已根据大家的想法生成新版行程。"
+        }).catch(() => {});
       });
 
       restorePlan?.addEventListener("click", async () => {

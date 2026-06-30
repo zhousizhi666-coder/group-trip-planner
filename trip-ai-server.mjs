@@ -120,14 +120,19 @@ function buildMessages(payload) {
   const ideas = Array.isArray(payload.ideas) ? payload.ideas : [];
   const currentTrip = payload.trip || {};
   const prompt = payload.prompt || "";
+  const allowNewPlaces = Boolean(currentTrip.allowNewPlaces || currentTrip.generationMode === "initial");
   const placeIds = Array.isArray(currentTrip.places)
     ? currentTrip.places.map(place => String(place?.id || "").trim()).filter(Boolean)
     : [];
-  const placeIdInstruction = placeIds.length
+  const placeIdInstruction = allowNewPlaces
+    ? "这是初版行程生成，你可以根据目的地、日期和用户诉求自行拆分目的地模块。updatedPlaces 应输出最终建议的目的地列表，每个 id 要稳定、简短、英文或拼音小写，不能沿用无关旧示例城市。"
+    : placeIds.length
     ? `updatedPlaces 只能包含当前行程目的地 id：${placeIds.join(", ")}。不要返回不在这个列表里的旧示例城市 id。`
     : "如果当前行程还没有目的地 id，请先基于硬约束中的地点生成稳定 id，并在 updatedPlaces 中使用这些 id。";
   const constraints = currentTrip.constraints && typeof currentTrip.constraints === "object" ? currentTrip.constraints : {};
-  const fixedOrderInstruction = constraints.orderMode === "fixed"
+  const fixedOrderInstruction = allowNewPlaces
+    ? "这是初版生成，你需要先判断目的地应拆成几个模块，并给出合理顺序；如果用户只填了一个城市，就不要硬拆多个城市。"
+    : constraints.orderMode === "fixed"
     ? `当前用户选择了固定顺序，这是不可改写的硬约束。你必须让 updatedPlaces 按这个顺序输出：${placeIds.join(" -> ")}。如果交通或日期存在冲突，也必须先保留这个顺序，再在 conflicts/nextChecks 中说明需要人工核验或调整航班，不能自行改回其他顺序。`
     : "当前用户没有固定路线顺序，你可以在不破坏往返和固定事项的前提下优化目的地顺序。";
 
@@ -149,6 +154,7 @@ function buildMessages(payload) {
         "adoptedIdeas/rejectedIdeas/conflicts/hardConstraintCheck/nextChecks 都是字符串数组。",
         "Place 字段必须包含 id, name, dates, objective, thesis, hotels, transport, advice, days。",
         "objective 是这个地点的抽象目标或阶段重点，必须基于该地点本身总结，不能沿用其他城市旧摘要；例如“负责动物体验与城市过渡”“海岛度假核心”“返程前城市收尾”。",
+        "初版生成时，如果是国家/省州/多城市旅行，可以输出 2-6 个目的地模块；如果是城市旅行，则输出 1 个城市模块并把每日安排写细。",
         "hotels 是二维数组，每项为 [名称, 建议]。",
         "transport 和 advice 是字符串数组。",
         "days 是二维数组，每项为 [日期标题, 上午, 下午, 晚上]。",
