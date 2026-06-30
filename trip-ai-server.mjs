@@ -179,6 +179,7 @@ function normalizeGeneratedTrip(plan, payload = {}) {
   const templateId = String(plan.templateId || payload.trip?.templateId || "australia");
   return {
     templateId,
+    constraintsFingerprint: String(payload.trip?.constraintsFingerprint || ""),
     summary: String(plan.summary || "已根据大家的建议生成新版行程。"),
     changes: normalizeStringList(plan.changes),
     agentReport: {

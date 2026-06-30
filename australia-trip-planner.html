@@ -1902,6 +1902,21 @@
       ].join("\n");
     }
 
+    function getConstraintsFingerprint(constraints = getTripConstraints()) {
+      return JSON.stringify({
+        arrival: String(constraints.arrival || "").trim(),
+        departure: String(constraints.departure || "").trim(),
+        destinations: normalizeDestinations(constraints.destinations),
+        orderMode: constraints.orderMode === "flexible" ? "flexible" : "fixed",
+        order: Array.isArray(constraints.order) ? constraints.order : [],
+        lodging: String(constraints.lodging || "").trim(),
+        accommodationBudget: String(constraints.accommodationBudget || "").trim(),
+        fixedItems: Array.isArray(constraints.fixedItems)
+          ? constraints.fixedItems.map(item => String(item || "").trim()).filter(Boolean)
+          : []
+      });
+    }
+
     function setActiveTripTemplate(templateId) {
       activeTripTemplate = tripTemplates[templateId] ? templateId : "australia";
       localStorage.setItem(activeTripTemplateStorageKey, activeTripTemplate);
@@ -1941,12 +1956,15 @@
       if (!sharedGeneratedTrip) return null;
       const templateId = sharedGeneratedTrip.templateId || "australia";
       if (templateId !== activeTripTemplate) return null;
+      if (sharedGeneratedTrip.constraintsFingerprint !== getConstraintsFingerprint()) return null;
       return sharedGeneratedTrip;
     }
 
     function saveGeneratedTrip(plan) {
-      sharedGeneratedTrip = plan || null;
-      localStorage.setItem(scopedStorageKey(generatedTripStorageKey), JSON.stringify(plan));
+      sharedGeneratedTrip = plan
+        ? { ...plan, constraintsFingerprint: plan.constraintsFingerprint || getConstraintsFingerprint() }
+        : null;
+      localStorage.setItem(scopedStorageKey(generatedTripStorageKey), JSON.stringify(sharedGeneratedTrip));
     }
 
     function clearGeneratedTrip() {
@@ -2304,6 +2322,7 @@
       return {
         basics: getTripBasics(),
         constraints: getTripConstraints(),
+        constraintsFingerprint: getConstraintsFingerprint(),
         templateId: activeTripTemplate,
         places: getCurrentTemplatePlaces()
           .map(place => ({
@@ -2354,7 +2373,11 @@
         const serverActiveVersion = (state.versions || []).find(version => version.id === state.activeVersionId);
         const serverActiveTemplate = serverActiveVersion ? (serverActiveVersion.templateId || serverActiveVersion.updatedTrip?.templateId || "australia") : serverTripTemplate;
         saveActiveVersionId(serverActiveTemplate === activeTripTemplate ? state.activeVersionId || "" : activeVersionId);
-        if (state.generatedTrip && serverTripTemplate === activeTripTemplate) {
+        if (
+          state.generatedTrip
+          && serverTripTemplate === activeTripTemplate
+          && state.generatedTrip.constraintsFingerprint === getConstraintsFingerprint()
+        ) {
           saveGeneratedTrip(state.generatedTrip);
           applyGeneratedPlaces(state.generatedTrip.updatedPlaces);
         } else if (!getGeneratedTrip()) {
