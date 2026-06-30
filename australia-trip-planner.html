@@ -1755,13 +1755,31 @@
       localStorage.setItem(scopedStorageKey(tripBasicsStorageKey), JSON.stringify(basics));
     }
 
-    function createConstraintId(name = "destination") {
+    const destinationIdAliases = {
+      "perth": "perth",
+      "珀斯": "perth",
+      "melbourne": "melbourne",
+      "墨尔本": "melbourne",
+      "whitsundays": "whitsundays",
+      "whitsunday": "whitsundays",
+      "圣灵群岛": "whitsundays",
+      "悉尼": "sydney",
+      "sydney": "sydney",
+      "brisbane": "brisbane",
+      "布里斯班": "brisbane"
+    };
+
+    function slugifyDestinationId(name = "destination") {
       const slug = String(name || "destination")
         .trim()
         .toLowerCase()
         .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "-")
         .replace(/^-+|-+$/g, "");
-      return `${slug || "destination"}-${Math.random().toString(36).slice(2, 7)}`;
+      return destinationIdAliases[slug] || slug || "destination";
+    }
+
+    function createConstraintId(name = "destination") {
+      return slugifyDestinationId(name);
     }
 
     function normalizeDestinations(destinations) {
@@ -1770,7 +1788,7 @@
         .map((destination, index) => {
           const name = String(destination?.name || "").trim();
           if (!name) return null;
-          let id = String(destination?.id || "").trim() || createConstraintId(name);
+          let id = createConstraintId(name);
           if (seen.has(id)) id = `${id}-${index + 1}`;
           seen.add(id);
           return {
@@ -1992,8 +2010,19 @@
       return "待补充地点目标";
     }
 
+    function getFallbackPlacesFromConstraints(constraints = getTripConstraints()) {
+      const destinations = getOrderedDestinations(constraints);
+      if (!destinations.length) return places.filter(place => place.id !== "ideas");
+      return destinations.map((destination, index) => {
+        const existing = places.find(place => place.id === destination.id)
+          || originalPlaces.find(place => place.id === destination.id);
+        if (existing) return existing;
+        return createEmptyPlaceFromDestination(destination, index);
+      });
+    }
+
     function getAustraliaPlaces() {
-      return orderPlacesByConstraints(places.filter(place => place.id !== "ideas"));
+      return orderPlacesByConstraints(getFallbackPlacesFromConstraints());
     }
 
     function createEmptyPlaceFromDestination(destination, index = 0) {
@@ -2041,9 +2070,10 @@
     }
 
     function getCurrentTemplatePlaces() {
-      if (isAustraliaTemplate()) return getAustraliaPlaces();
       const constraints = getTripConstraints();
-      const fallbackPlaces = getOrderedDestinations(constraints).map(createEmptyPlaceFromDestination);
+      const fallbackPlaces = isAustraliaTemplate()
+        ? getFallbackPlacesFromConstraints(constraints)
+        : getOrderedDestinations(constraints).map(createEmptyPlaceFromDestination);
       const generated = getGeneratedTrip();
       if (Array.isArray(generated?.updatedPlaces) && generated.updatedPlaces.length) {
         const fallbackById = Object.fromEntries(fallbackPlaces.map(place => [place.id, place]));
@@ -2053,7 +2083,7 @@
           .map(place => normalizeCustomPlace(place, fallbackById[place.id]));
         return orderPlacesByConstraints(generatedPlaces, constraints);
       }
-      return fallbackPlaces;
+      return orderPlacesByConstraints(fallbackPlaces, constraints);
     }
 
     function getTripPlaceIds() {
@@ -2102,11 +2132,11 @@
 
     function applyGeneratedPlaces(updatedPlaces) {
       if (!Array.isArray(updatedPlaces)) return false;
-      if (!isAustraliaTemplate()) {
-        const validIds = new Set(getTripPlaceIds());
-        return updatedPlaces.some(place => validIds.has(place.id));
-      }
-      const ids = getTripPlaceIds();
+      const fallbackPlaces = isAustraliaTemplate()
+        ? getFallbackPlacesFromConstraints()
+        : getCurrentTemplatePlaces();
+      const ids = fallbackPlaces.map(place => place.id);
+      const validIds = new Set(ids);
       let changed = false;
 
       ids.forEach(id => {
@@ -2115,8 +2145,8 @@
         const candidate = updatedPlaces.find(place => place.id === id);
         if (currentIndex >= 0 && fallback && candidate) {
           places[currentIndex] = normalizePlace(candidate, fallback);
-          changed = true;
         }
+        if (candidate && validIds.has(candidate.id)) changed = true;
       });
 
       return changed;
@@ -2390,16 +2420,15 @@
     }
 
     function getDestinationRowsFromForm(form) {
-      return [...form.querySelectorAll("[data-destination-row]")].map((row, index) => {
+      return normalizeDestinations([...form.querySelectorAll("[data-destination-row]")].map((row, index) => {
         const name = row.querySelector("[name='destinationName']")?.value || "";
         const nights = row.querySelector("[name='destinationNights']")?.value || "";
-        const existingId = row.dataset.destinationId || "";
         return {
-          id: existingId || createConstraintId(name || `destination-${index + 1}`),
+          id: createConstraintId(name || `destination-${index + 1}`),
           name: String(name).trim(),
           nights: String(nights).trim() || "待定"
         };
-      }).filter(destination => destination.name);
+      }).filter(destination => destination.name));
     }
 
     function sortDestinationsForEditor(destinations, order) {
@@ -2486,7 +2515,7 @@
       };
 
       document.getElementById("addDestination")?.addEventListener("click", () => {
-        const id = createConstraintId("destination");
+        const id = `destination-${Date.now().toString(36)}`;
         list.insertAdjacentHTML("beforeend", renderDestinationRows([{ id, name: "", nights: "待定" }]));
         list.querySelector(`[data-destination-id="${CSS.escape(id)}"]`)?.querySelector("input")?.focus();
         refreshSortable();
@@ -2633,14 +2662,14 @@
         renderWorkspaceTab("overview");
       });
 
-      document.getElementById("tripConstraintsForm")?.addEventListener("submit", event => {
+      document.getElementById("tripConstraintsForm")?.addEventListener("submit", async event => {
         event.preventDefault();
         const form = event.currentTarget;
         const data = new FormData(event.currentTarget);
         const destinations = getDestinationRowsFromForm(form);
         const validIds = new Set(destinations.map(destination => destination.id));
         const order = getOrderFromSortableList().filter(id => validIds.has(id));
-        saveTripConstraints({
+        const nextConstraints = {
           arrival: data.get("arrival"),
           departure: data.get("departure"),
           destinations,
@@ -2649,8 +2678,13 @@
           lodging: data.get("lodging"),
           accommodationBudget: data.get("accommodationBudget"),
           fixedItems: String(data.get("fixedItems") || "").split("\n")
-        });
-        activePlaceId = destinations[0]?.id || "";
+        };
+        saveTripConstraints(nextConstraints);
+        clearGeneratedTrip();
+        try {
+          await fetchJson("/api/reset-plan", { method: "POST" });
+        } catch {}
+        activePlaceId = nextConstraints.order[0] || destinations[0]?.id || "";
         renderWorkspaceTab("overview");
         renderActiveDetail();
       });
