@@ -1971,6 +1971,27 @@
       return [...ordered, ...missing];
     }
 
+    function compactText(value, maxLength = 34) {
+      const text = String(value || "").replace(/\s+/g, " ").trim();
+      if (!text) return "";
+      return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
+    }
+
+    function getPlaceAbstractGoal(place) {
+      if (!place) return "待补充地点目标";
+      if (place.objective) return compactText(place.objective);
+      if (place.thesis) return compactText(place.thesis);
+      if (Array.isArray(place.days) && place.days.length) {
+        const highlights = place.days
+          .flatMap(day => day.slice(1))
+          .map(item => String(item || "").trim())
+          .filter(Boolean);
+        if (highlights.length) return compactText(highlights.slice(0, 2).join("；"));
+      }
+      if (Array.isArray(place.advice) && place.advice.length) return compactText(place.advice[0]);
+      return "待补充地点目标";
+    }
+
     function getAustraliaPlaces() {
       return orderPlacesByConstraints(places.filter(place => place.id !== "ideas"));
     }
@@ -1983,6 +2004,7 @@
         name,
         dates: nights,
         short: `${nights}，待生成行程`,
+        objective: "待生成这个地点的抽象目标",
         thumb: "https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&w=200&q=80",
         image: "https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&w=1800&q=80",
         thesis: "这是新旅行计划里的自定义目的地。先维护基础信息和硬约束，再让 Agent 生成住宿、交通和每日安排。",
@@ -1999,20 +2021,22 @@
         name: candidate?.name,
         nights: candidate?.dates || "待定"
       });
+      const nameChanged = Boolean(candidate?.name && base?.name && candidate.name !== base.name);
       return {
         ...base,
         ...candidate,
         id: candidate?.id || base.id,
         name: candidate?.name || base.name,
         dates: candidate?.dates || base.dates,
-        short: candidate?.short || base.short || candidate?.dates || base.dates,
+        short: candidate?.short || (nameChanged ? "" : base.short) || candidate?.dates || base.dates,
+        objective: candidate?.objective || (nameChanged ? "" : base.objective) || candidate?.thesis || "待补充地点目标",
         thumb: candidate?.thumb || base.thumb,
         image: candidate?.image || base.image,
-        thesis: candidate?.thesis || base.thesis,
-        hotels: Array.isArray(candidate?.hotels) ? candidate.hotels : base.hotels,
-        transport: Array.isArray(candidate?.transport) ? candidate.transport : base.transport,
-        advice: Array.isArray(candidate?.advice) ? candidate.advice : base.advice,
-        days: Array.isArray(candidate?.days) ? candidate.days : base.days
+        thesis: candidate?.thesis || (nameChanged ? "" : base.thesis) || candidate?.objective || "待补充这个地点的行程目标。",
+        hotels: Array.isArray(candidate?.hotels) ? candidate.hotels : (nameChanged ? [] : base.hotels),
+        transport: Array.isArray(candidate?.transport) ? candidate.transport : (nameChanged ? [] : base.transport),
+        advice: Array.isArray(candidate?.advice) ? candidate.advice : (nameChanged ? [] : base.advice),
+        days: Array.isArray(candidate?.days) ? candidate.days : (nameChanged ? [] : base.days)
       };
     }
 
@@ -2059,17 +2083,20 @@
     }
 
     function normalizePlace(candidate, fallback) {
+      const nameChanged = Boolean(candidate?.name && fallback?.name && candidate.name !== fallback.name);
       return {
         ...fallback,
         ...candidate,
         id: fallback.id,
         name: candidate?.name || fallback.name,
         dates: candidate?.dates || fallback.dates,
-        thesis: candidate?.thesis || fallback.thesis,
-        hotels: Array.isArray(candidate?.hotels) ? candidate.hotels : fallback.hotels,
-        transport: Array.isArray(candidate?.transport) ? candidate.transport : fallback.transport,
-        advice: Array.isArray(candidate?.advice) ? candidate.advice : fallback.advice,
-        days: Array.isArray(candidate?.days) ? candidate.days : fallback.days
+        short: candidate?.short || (nameChanged ? "" : fallback.short) || candidate?.dates || fallback.dates,
+        objective: candidate?.objective || (nameChanged ? "" : fallback.objective) || candidate?.thesis || "待补充地点目标",
+        thesis: candidate?.thesis || (nameChanged ? "" : fallback.thesis) || candidate?.objective || "待补充这个地点的行程目标。",
+        hotels: Array.isArray(candidate?.hotels) ? candidate.hotels : (nameChanged ? [] : fallback.hotels),
+        transport: Array.isArray(candidate?.transport) ? candidate.transport : (nameChanged ? [] : fallback.transport),
+        advice: Array.isArray(candidate?.advice) ? candidate.advice : (nameChanged ? [] : fallback.advice),
+        days: Array.isArray(candidate?.days) ? candidate.days : (nameChanged ? [] : fallback.days)
       };
     }
 
@@ -2250,6 +2277,7 @@
             id: place.id,
             name: place.name,
             dates: place.dates,
+            objective: place.objective || getPlaceAbstractGoal(place),
             thesis: place.thesis,
             hotels: place.hotels,
             transport: place.transport,
@@ -2319,7 +2347,7 @@
       nav.innerHTML = navPlaces.map(place => `
         <button type="button" class="${place.id === activeId ? "active" : ""}" data-id="${place.id}" aria-label="打开 ${place.name}">
           <img src="${place.thumb}" alt="" loading="lazy" onerror="this.onerror=null;this.src='https://images.unsplash.com/photo-1523482580672-f109ba8cb9be?auto=format&fit=crop&w=200&q=80';" />
-          <span><b>${place.name}</b><small>${place.short}</small></span>
+          <span><b>${place.name}</b><small>${getPlaceAbstractGoal(place)}</small></span>
         </button>
       `).join("");
 
@@ -2648,7 +2676,7 @@
 
     function summarizeStops(stops) {
       return Array.isArray(stops) && stops.length
-        ? stops.map(place => `${place.name}（${place.short || place.dates || "待定"}）`).join("；")
+        ? stops.map(place => `${place.name}（${getPlaceAbstractGoal(place)}）`).join("；")
         : "未填写";
     }
 
@@ -2683,7 +2711,7 @@
           : constraints.accommodationBudget,
         fixedItems: Array.isArray(constraints.fixedItems) && constraints.fixedItems.some(item => !isPlaceholderValue(item))
           ? constraints.fixedItems.filter(item => !isPlaceholderValue(item))
-          : stops.slice(0, 4).map(place => `${place.name}：${place.thesis || place.short || place.dates}`)
+          : stops.slice(0, 4).map(place => `${place.name}：${place.thesis || getPlaceAbstractGoal(place) || place.dates}`)
       };
     }
 
@@ -2718,7 +2746,7 @@
                   <button class="route-stop ${place.id === getActivePlaceId() ? "active" : ""}" type="button" data-route-place="${place.id}" aria-label="查看 ${escapeHTML(place.name)} 行程">
                     <strong>${escapeHTML(place.name)}</strong>
                     <span>${escapeHTML(place.dates)}</span>
-                    <em>${escapeHTML(place.short)}</em>
+                    <em>${escapeHTML(getPlaceAbstractGoal(place))}</em>
                     ${shouldShowGeneratedBadge(place.id) ? `<span class="route-badge">AI 已更新</span>` : ""}
                   </button>
                 `).join("")}
@@ -3450,7 +3478,7 @@
 
       detail.innerHTML = `
         <header class="place-head" style="background-image: url('${place.image}')">
-          <div class="pill-row"><span class="pill">${place.dates}</span><span class="pill">${place.short}</span></div>
+          <div class="pill-row"><span class="pill">${place.dates}</span><span class="pill">${getPlaceAbstractGoal(place)}</span></div>
           <h2>${place.name}</h2>
           <p>${place.thesis}</p>
         </header>
