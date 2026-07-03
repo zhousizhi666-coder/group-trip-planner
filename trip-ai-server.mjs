@@ -269,6 +269,26 @@ async function listLarkVersionRecords(tripId = defaultTripId) {
 }
 
 function getLarkRecordItems(data = {}) {
+  if (Array.isArray(data?.data?.data) && Array.isArray(data?.data?.fields)) {
+    const fieldNames = data.data.fields;
+    const fieldIds = Array.isArray(data.data.field_id_list) ? data.data.field_id_list : [];
+    const recordIds = Array.isArray(data.data.record_id_list) ? data.data.record_id_list : [];
+    return data.data.data.map((row, rowIndex) => {
+      const fields = {};
+      if (Array.isArray(row)) {
+        row.forEach((value, columnIndex) => {
+          const fieldName = fieldNames[columnIndex];
+          const fieldId = fieldIds[columnIndex];
+          if (fieldName) fields[fieldName] = value;
+          if (fieldId) fields[fieldId] = value;
+        });
+      }
+      return {
+        record_id: recordIds[rowIndex] || "",
+        fields
+      };
+    });
+  }
   return data?.data?.items
     || data?.data?.records
     || data?.items
