@@ -311,7 +311,7 @@ async function writeLarkTrip(rawState, tripId = defaultTripId, shareKey = "") {
     : `/base/v3/bases/${larkBaseToken}/tables/${larkTripsTableId}/records`;
   await larkApi(path, {
     method: existing?.recordId ? "PATCH" : "POST",
-    body: { fields }
+    body: fields
   });
   return state;
 }
@@ -333,7 +333,7 @@ async function writeLarkVersion(version, tripId = defaultTripId) {
     : `/base/v3/bases/${larkBaseToken}/tables/${larkVersionsTableId}/records`;
   await larkApi(path, {
     method: existing?.recordId ? "PATCH" : "POST",
-    body: { fields }
+    body: fields
   });
   return { ...version, tripId };
 }
