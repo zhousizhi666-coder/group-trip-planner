@@ -22,6 +22,7 @@ const larkTripsTableId = process.env.LARK_TRIPS_TABLE_ID || "";
 const larkVersionsTableId = process.env.LARK_VERSIONS_TABLE_ID || "tblozOB1lmp93z5S";
 const larkEnabled = Boolean(larkAppId && larkAppSecret && larkBaseToken && larkTripsTableId);
 const larkVersionsEnabled = Boolean(larkEnabled && larkVersionsTableId);
+const storageVersion = "lark-upsert-v3";
 let cachedLarkToken = null;
 let cachedLarkTokenExpiresAt = 0;
 
@@ -647,8 +648,42 @@ const server = createServer(async (request, response) => {
       baseUrl,
       ready: Boolean(apiKey),
       larkStorage: Boolean(larkEnabled),
+      larkVersions: Boolean(larkVersionsEnabled),
+      storageVersion,
       defaultTripId
     });
+    return;
+  }
+
+  if (url.pathname === "/api/debug-lark-trip" && request.method === "GET") {
+    try {
+      const tripId = getRequestTripId(url);
+      const filter = encodeURIComponent(JSON.stringify({
+        logic: "and",
+        conditions: [["tripId", "==", tripId]]
+      }));
+      const data = await larkApi(`/base/v3/bases/${larkBaseToken}/tables/${larkTripsTableId}/records?field_id=tripId&field_id=title&field_id=updatedAt&filter=${filter}&limit=20&offset=0`);
+      const items = getLarkRecordItems(data);
+      sendJson(response, 200, {
+        storageVersion,
+        tripId,
+        topLevelKeys: Object.keys(data || {}),
+        dataKeys: data?.data && typeof data.data === "object" ? Object.keys(data.data) : [],
+        count: items.length,
+        items: items.map(item => {
+          const fields = item.fields || {};
+          return {
+            recordId: item.record_id || item.recordId || item.id || "",
+            fieldKeys: Object.keys(fields),
+            parsedTripId: fieldText(fields, tripFieldAliases.tripId, ""),
+            parsedTitle: fieldText(fields, tripFieldAliases.title, ""),
+            parsedUpdatedAt: fieldText(fields, tripFieldAliases.updatedAt, "")
+          };
+        })
+      });
+    } catch (error) {
+      sendJson(response, error.status || 500, { error: error.message || "debug failed", storageVersion });
+    }
     return;
   }
 
