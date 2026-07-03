@@ -11,16 +11,23 @@
 4. 设置环境变量：
    - `VOLCENGINE_API_KEY`: 火山引擎 API Key
    - `ARK_MODEL`: `ep-m-20260604202245-c2cq2`
+   - `LARK_APP_ID`: 飞书自建应用 App ID
+   - `LARK_APP_SECRET`: 飞书自建应用 App Secret
+   - `LARK_BASE_TOKEN`: `C3Z1bFVfbanZlxs01uZlUQRXgLg`
+   - `LARK_TRIPS_TABLE_ID`: `tblvQcGaN0wOwNyC`
+   - `LARK_OPENAPI_BASE_URL`: `https://open.larksuite.com/open-apis`
+   - `DEFAULT_TRIP_ID`: `australia-2026`
 5. 部署完成后，Render 会给一个公网 URL。
 
 ## 当前存储方式
 
-当前版本用服务端 JSON 文件保存：
+当前版本优先使用飞书多维表格作为云存储：
 
-- 所有人提交的建议
-- 最近一次生成的新版行程
+- Trips 表保存每个 `tripId` 下的完整行程 JSON
+- 分享链接使用 `tripId + key` 自动读取同一份行程
+- 前端不保存飞书凭证，所有写入都由 Render 后端用飞书应用身份完成
 
-适合轻量试用。如果要长期稳定使用，后续建议换成 Supabase / Neon / Render Postgres。
+如果没有配置飞书环境变量，服务会退回到服务端 JSON 文件，仅适合本地调试。
 
 ## 本地测试
 
@@ -29,6 +36,12 @@
 ```bash
 VOLCENGINE_API_KEY=你的火山引擎key
 ARK_MODEL=ep-m-20260604202245-c2cq2
+LARK_APP_ID=你的飞书应用AppID
+LARK_APP_SECRET=你的飞书应用AppSecret
+LARK_BASE_TOKEN=C3Z1bFVfbanZlxs01uZlUQRXgLg
+LARK_TRIPS_TABLE_ID=tblvQcGaN0wOwNyC
+LARK_OPENAPI_BASE_URL=https://open.larksuite.com/open-apis
+DEFAULT_TRIP_ID=australia-2026
 ```
 
 然后启动本地服务：

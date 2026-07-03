@@ -498,6 +498,17 @@
       font-size: 12px;
     }
 
+    button.chip {
+      cursor: pointer;
+      font: inherit;
+    }
+
+    button.chip:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: var(--soft);
+    }
+
     .version-list {
       display: grid;
       gap: 10px;
@@ -1346,6 +1357,7 @@
                 <span class="chip">当前示例：澳洲 10 晚</span>
                 <span class="chip">多人建议共享</span>
                 <span class="chip">可生成新版计划</span>
+                <button class="chip" type="button" id="shareTripLink">复制分享链接</button>
               </div>
             </div>
             <div class="workspace-tabs" id="workspaceTabs" aria-label="旅行共创流程"></div>
@@ -1500,14 +1512,22 @@
     const tripBasicsStorageKey = "group-trip-basics-v1";
     const tripConstraintsStorageKey = "group-trip-hard-constraints-v1";
     const activeTripTemplateStorageKey = "group-trip-active-template-v1";
+    const activeTripIdStorageKey = "group-trip-active-id-v1";
+    const activeShareKeyStorageKey = "group-trip-share-key-v1";
+    const urlParams = new URLSearchParams(location.search);
+    const defaultTripId = "australia-2026";
     const originalPlaces = JSON.parse(JSON.stringify(places));
     let activeWorkspaceTab = "overview";
     let activeTripTemplate = localStorage.getItem(activeTripTemplateStorageKey) || "australia";
+    let activeTripId = urlParams.get("tripId") || localStorage.getItem(activeTripIdStorageKey) || defaultTripId;
+    let activeShareKey = urlParams.get("key") || urlParams.get("shareKey") || localStorage.getItem(activeShareKeyStorageKey) || "";
     let activePlaceId = "perth";
     let sharedIdeas = readLocalIdeas();
     let sharedGeneratedTrip = readLocalGeneratedTrip();
     let sharedVersions = readLocalVersions();
-    let activeVersionId = localStorage.getItem(scopedStorageKey(activeVersionIdStorageKey)) || "";
+    let activeVersionId = localStorage.getItem(getTripScopedStorageKey(activeVersionIdStorageKey)) || "";
+    let isHydratingTripState = false;
+    let cloudSaveTimer = null;
     const workspaceTabs = [
       { id: "create", label: "创建行程" },
       { id: "overview", label: "行程总览" },
@@ -1636,7 +1656,44 @@
       return `${baseKey}:${templateId || "australia"}`;
     }
 
+    function getTripScopedStorageKey(baseKey) {
+      return `${baseKey}:trip:${activeTripId || defaultTripId}`;
+    }
+
+    function updateTripUrl() {
+      if (!activeTripId || location.protocol === "file:") return;
+      const nextUrl = new URL(location.href);
+      nextUrl.searchParams.set("tripId", activeTripId);
+      if (activeShareKey) nextUrl.searchParams.set("key", activeShareKey);
+      history.replaceState(null, "", nextUrl.toString());
+      localStorage.setItem(activeTripIdStorageKey, activeTripId);
+      if (activeShareKey) localStorage.setItem(activeShareKeyStorageKey, activeShareKey);
+    }
+
+    async function copyTripShareLink() {
+      try {
+        await saveTripToCloudNow();
+      } catch {
+        // Copy the best local URL even if the cloud save failed.
+      }
+      updateTripUrl();
+      const url = location.href;
+      try {
+        await navigator.clipboard.writeText(url);
+        const button = document.getElementById("shareTripLink");
+        if (button) {
+          const oldText = button.textContent;
+          button.textContent = "已复制链接";
+          window.setTimeout(() => { button.textContent = oldText; }, 1600);
+        }
+      } catch {
+        prompt("复制这个分享链接：", url);
+      }
+    }
+
     function readScopedLocalStorage(baseKey, fallbackValue = null) {
+      const tripScoped = localStorage.getItem(getTripScopedStorageKey(baseKey));
+      if (tripScoped !== null) return tripScoped;
       const scoped = localStorage.getItem(scopedStorageKey(baseKey));
       if (scoped !== null) return scoped;
       if (activeTripTemplate === "australia") return localStorage.getItem(baseKey) ?? fallbackValue;
@@ -1644,13 +1701,14 @@
     }
 
     function hasScopedLocalStorage(baseKey, templateId = activeTripTemplate) {
+      if (localStorage.getItem(getTripScopedStorageKey(baseKey)) !== null) return true;
       if (localStorage.getItem(scopedStorageKey(baseKey, templateId)) !== null) return true;
       return templateId === "australia" && localStorage.getItem(baseKey) !== null;
     }
 
     function readLocalIdeas() {
       try {
-        return JSON.parse(localStorage.getItem(ideaStorageKey) || "[]");
+        return JSON.parse(localStorage.getItem(getTripScopedStorageKey(ideaStorageKey)) || localStorage.getItem(ideaStorageKey) || "[]");
       } catch (error) {
         return [];
       }
@@ -1666,7 +1724,7 @@
 
     function readLocalVersions() {
       try {
-        return JSON.parse(localStorage.getItem(tripVersionsStorageKey) || "[]");
+        return JSON.parse(localStorage.getItem(getTripScopedStorageKey(tripVersionsStorageKey)) || localStorage.getItem(tripVersionsStorageKey) || "[]");
       } catch {
         return [];
       }
@@ -1682,7 +1740,8 @@
     }
 
     function saveBudgetRows(rows) {
-      localStorage.setItem(scopedStorageKey(budgetStorageKey), JSON.stringify(rows));
+      localStorage.setItem(getTripScopedStorageKey(budgetStorageKey), JSON.stringify(rows));
+      queueTripCloudSave();
     }
 
     function resetBudgetRows() {
@@ -1756,7 +1815,8 @@
     }
 
     function saveTripBasics(basics) {
-      localStorage.setItem(scopedStorageKey(tripBasicsStorageKey), JSON.stringify(basics));
+      localStorage.setItem(getTripScopedStorageKey(tripBasicsStorageKey), JSON.stringify(basics));
+      queueTripCloudSave();
     }
 
     function getBasicsDateRange(basics = getTripBasics()) {
@@ -1906,7 +1966,7 @@
 
     function saveTripConstraints(constraints) {
       const destinations = normalizeDestinations(constraints.destinations);
-      localStorage.setItem(scopedStorageKey(tripConstraintsStorageKey), JSON.stringify({
+      localStorage.setItem(getTripScopedStorageKey(tripConstraintsStorageKey), JSON.stringify({
         arrival: String(constraints.arrival || "").trim(),
         departure: String(constraints.departure || "").trim(),
         destinations,
@@ -1919,6 +1979,7 @@
           ? constraints.fixedItems.map(item => String(item || "").trim()).filter(Boolean)
           : []
       }));
+      queueTripCloudSave();
     }
 
     function resetTripConstraints() {
@@ -1972,6 +2033,7 @@
       });
       renderWorkspaceTab(activeTripTemplate === "australia" ? "overview" : "create");
       renderActiveDetail();
+      queueTripCloudSave();
     }
 
     function bindTripSwitcher() {
@@ -1987,7 +2049,8 @@
 
     function saveIdeas(ideas) {
       sharedIdeas = Array.isArray(ideas) ? ideas : [];
-      localStorage.setItem(ideaStorageKey, JSON.stringify(ideas));
+      localStorage.setItem(getTripScopedStorageKey(ideaStorageKey), JSON.stringify(ideas));
+      queueTripCloudSave();
     }
 
     function getGeneratedTrip() {
@@ -2002,14 +2065,16 @@
       sharedGeneratedTrip = plan
         ? { ...plan, constraintsFingerprint: getConstraintsFingerprint() }
         : null;
-      localStorage.setItem(scopedStorageKey(generatedTripStorageKey), JSON.stringify(sharedGeneratedTrip));
+      localStorage.setItem(getTripScopedStorageKey(generatedTripStorageKey), JSON.stringify(sharedGeneratedTrip));
+      queueTripCloudSave();
     }
 
     function clearGeneratedTrip() {
       sharedGeneratedTrip = null;
-      localStorage.removeItem(scopedStorageKey(generatedTripStorageKey));
+      localStorage.removeItem(getTripScopedStorageKey(generatedTripStorageKey));
       activeVersionId = "";
-      localStorage.removeItem(scopedStorageKey(activeVersionIdStorageKey));
+      localStorage.removeItem(getTripScopedStorageKey(activeVersionIdStorageKey));
+      queueTripCloudSave();
     }
 
     function getVersions() {
@@ -2018,16 +2083,18 @@
 
     function saveVersions(versions) {
       sharedVersions = Array.isArray(versions) ? versions : [];
-      localStorage.setItem(tripVersionsStorageKey, JSON.stringify(sharedVersions));
+      localStorage.setItem(getTripScopedStorageKey(tripVersionsStorageKey), JSON.stringify(sharedVersions));
+      queueTripCloudSave();
     }
 
     function saveActiveVersionId(versionId) {
       activeVersionId = versionId || "";
       if (activeVersionId) {
-        localStorage.setItem(scopedStorageKey(activeVersionIdStorageKey), activeVersionId);
+        localStorage.setItem(getTripScopedStorageKey(activeVersionIdStorageKey), activeVersionId);
       } else {
-        localStorage.removeItem(scopedStorageKey(activeVersionIdStorageKey));
+        localStorage.removeItem(getTripScopedStorageKey(activeVersionIdStorageKey));
       }
+      queueTripCloudSave();
     }
 
     function isAustraliaTemplate() {
@@ -2358,6 +2425,8 @@
 
     function getCurrentTripPayload(options = {}) {
       return {
+        tripId: activeTripId || defaultTripId,
+        shareKey: activeShareKey,
         basics: getTripBasics(),
         constraints: getTripConstraints(),
         constraintsFingerprint: getConstraintsFingerprint(),
@@ -2423,6 +2492,8 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             trip: getCurrentTripPayload({ allowNewPlaces, generationMode }),
+            tripId: activeTripId || defaultTripId,
+            shareKey: activeShareKey,
             prompt: prompt || buildIdeaExport()
           })
         });
@@ -2487,11 +2558,96 @@
       return data;
     }
 
+    function buildTripCloudState() {
+      const basics = getTripBasics();
+      return {
+        tripId: activeTripId || defaultTripId,
+        shareKey: activeShareKey,
+        title: basics.destination ? `${basics.destination} ${basics.dates || ""}`.trim() : "旅行计划",
+        activeTripTemplate,
+        activePlaceId,
+        activeWorkspaceTab,
+        basics,
+        constraints: getTripConstraints(),
+        constraintsFingerprint: getConstraintsFingerprint(),
+        ideas: sharedIdeas,
+        generatedTrip: sharedGeneratedTrip,
+        versions: sharedVersions,
+        activeVersionId,
+        budgetRows: readBudgetRows(),
+        updatedAt: new Date().toISOString()
+      };
+    }
+
+    function applyTripCloudState(state) {
+      if (!state || typeof state !== "object") return false;
+      isHydratingTripState = true;
+      activeTripId = String(state.tripId || activeTripId || defaultTripId);
+      activeShareKey = String(state.shareKey || activeShareKey || "");
+      activeTripTemplate = state.activeTripTemplate || state.templateId || activeTripTemplate || "australia";
+      localStorage.setItem(activeTripTemplateStorageKey, activeTripTemplate);
+      localStorage.setItem(activeTripIdStorageKey, activeTripId);
+      if (activeShareKey) localStorage.setItem(activeShareKeyStorageKey, activeShareKey);
+      if (state.basics) localStorage.setItem(getTripScopedStorageKey(tripBasicsStorageKey), JSON.stringify(state.basics));
+      if (state.constraints) localStorage.setItem(getTripScopedStorageKey(tripConstraintsStorageKey), JSON.stringify(state.constraints));
+      if (Array.isArray(state.budgetRows)) localStorage.setItem(getTripScopedStorageKey(budgetStorageKey), JSON.stringify(state.budgetRows));
+      sharedIdeas = Array.isArray(state.ideas) ? state.ideas : [];
+      localStorage.setItem(getTripScopedStorageKey(ideaStorageKey), JSON.stringify(sharedIdeas));
+      sharedGeneratedTrip = state.generatedTrip || null;
+      localStorage.setItem(getTripScopedStorageKey(generatedTripStorageKey), JSON.stringify(sharedGeneratedTrip));
+      sharedVersions = Array.isArray(state.versions) ? state.versions : [];
+      localStorage.setItem(getTripScopedStorageKey(tripVersionsStorageKey), JSON.stringify(sharedVersions));
+      activeVersionId = state.activeVersionId || "";
+      if (activeVersionId) {
+        localStorage.setItem(getTripScopedStorageKey(activeVersionIdStorageKey), activeVersionId);
+      } else {
+        localStorage.removeItem(getTripScopedStorageKey(activeVersionIdStorageKey));
+      }
+      activePlaceId = state.activePlaceId || getTripPlaceIds()[0] || "";
+      if (sharedGeneratedTrip?.updatedPlaces) applyGeneratedPlaces(sharedGeneratedTrip.updatedPlaces);
+      updateTripUrl();
+      isHydratingTripState = false;
+      return true;
+    }
+
+    async function saveTripToCloudNow() {
+      if (isHydratingTripState) return null;
+      const state = buildTripCloudState();
+      const data = await fetchJson("/api/trip", {
+        method: "POST",
+        body: JSON.stringify({
+          tripId: activeTripId || defaultTripId,
+          shareKey: activeShareKey,
+          state
+        })
+      });
+      if (data?.tripId) activeTripId = data.tripId;
+      if (data?.shareKey) activeShareKey = data.shareKey;
+      updateTripUrl();
+      return data;
+    }
+
+    function queueTripCloudSave() {
+      if (isHydratingTripState) return;
+      window.clearTimeout(cloudSaveTimer);
+      cloudSaveTimer = window.setTimeout(() => {
+        saveTripToCloudNow().catch(() => {
+          // Local storage remains the offline fallback when cloud persistence is unavailable.
+        });
+      }, 700);
+    }
+
     async function syncStateFromServer() {
       try {
-        const state = await fetchJson("/api/state");
-        saveIdeas(state.ideas || []);
-        saveVersions(state.versions || []);
+        const state = await fetchJson(`/api/state?tripId=${encodeURIComponent(activeTripId || defaultTripId)}&key=${encodeURIComponent(activeShareKey || "")}`);
+        const hasRemotePayload = Boolean(state && (state.basics || state.constraints || state.budgetRows || state.generatedTrip || (Array.isArray(state.ideas) && state.ideas.length)));
+        if (hasRemotePayload) {
+          applyTripCloudState(state);
+        } else {
+          await saveTripToCloudNow().catch(() => {});
+        }
+        saveIdeas(state.ideas || sharedIdeas || []);
+        saveVersions(state.versions || sharedVersions || []);
         const serverTripTemplate = state.generatedTrip ? (state.generatedTrip.templateId || "australia") : "";
         const serverActiveVersion = (state.versions || []).find(version => version.id === state.activeVersionId);
         const serverActiveTemplate = serverActiveVersion ? (serverActiveVersion.templateId || serverActiveVersion.updatedTrip?.templateId || "australia") : serverTripTemplate;
@@ -2813,7 +2969,10 @@
         });
         clearGeneratedTrip();
         try {
-          await fetchJson("/api/reset-plan", { method: "POST" });
+          await fetchJson("/api/reset-plan", {
+            method: "POST",
+            body: JSON.stringify({ tripId: activeTripId || defaultTripId, shareKey: activeShareKey })
+          });
         } catch {}
         await generateTripPlan({
           prompt: buildQuickStartPrompt(basicsPayload),
@@ -2845,7 +3004,10 @@
         saveTripConstraints(nextConstraints);
         clearGeneratedTrip();
         try {
-          await fetchJson("/api/reset-plan", { method: "POST" });
+          await fetchJson("/api/reset-plan", {
+            method: "POST",
+            body: JSON.stringify({ tripId: activeTripId || defaultTripId, shareKey: activeShareKey })
+          });
         } catch {}
         activePlaceId = nextConstraints.order[0] || destinations[0]?.id || "";
         await generateTripPlan({
@@ -3309,7 +3471,10 @@
 
       document.getElementById("restoreFromVersions")?.addEventListener("click", async () => {
         try {
-          const state = await fetchJson("/api/reset-plan", { method: "POST" });
+          const state = await fetchJson("/api/reset-plan", {
+            method: "POST",
+            body: JSON.stringify({ tripId: activeTripId || defaultTripId, shareKey: activeShareKey })
+          });
           saveVersions(state.versions || getVersions());
           saveActiveVersionId("");
         } catch {
@@ -3326,7 +3491,7 @@
           try {
             const state = await fetchJson("/api/restore-version", {
               method: "POST",
-              body: JSON.stringify({ versionId })
+              body: JSON.stringify({ versionId, tripId: activeTripId || defaultTripId, shareKey: activeShareKey })
             });
             saveGeneratedTrip(state.generatedTrip);
             saveVersions(state.versions || getVersions());
@@ -3495,7 +3660,7 @@
       list.querySelectorAll("[data-delete-idea]").forEach(button => {
         button.addEventListener("click", async () => {
           try {
-            const data = await fetchJson(`/api/ideas?id=${encodeURIComponent(button.dataset.deleteIdea)}`, {
+            const data = await fetchJson(`/api/ideas?id=${encodeURIComponent(button.dataset.deleteIdea)}&tripId=${encodeURIComponent(activeTripId || defaultTripId)}&key=${encodeURIComponent(activeShareKey || "")}`, {
               method: "DELETE"
             });
             saveIdeas(data.ideas || []);
@@ -3549,7 +3714,7 @@
         try {
           const data = await fetchJson("/api/ideas", {
             method: "POST",
-            body: JSON.stringify(idea)
+            body: JSON.stringify({ ...idea, tripId: activeTripId || defaultTripId, shareKey: activeShareKey })
           });
           saveIdeas(data.ideas || [idea, ...getIdeas()]);
           saveVersions(data.versions || getVersions());
@@ -3590,7 +3755,10 @@
 
       restorePlan?.addEventListener("click", async () => {
         try {
-          const state = await fetchJson("/api/reset-plan", { method: "POST" });
+          const state = await fetchJson("/api/reset-plan", {
+            method: "POST",
+            body: JSON.stringify({ tripId: activeTripId || defaultTripId, shareKey: activeShareKey })
+          });
           saveVersions(state.versions || getVersions());
           saveActiveVersionId("");
         } catch {
@@ -3608,7 +3776,7 @@
       clearIdeas?.addEventListener("click", async () => {
         if (!confirm("确定清空所有人已提交的建议吗？")) return;
         try {
-          const data = await fetchJson(`/api/ideas?templateId=${encodeURIComponent(activeTripTemplate)}`, { method: "DELETE" });
+          const data = await fetchJson(`/api/ideas?templateId=${encodeURIComponent(activeTripTemplate)}&tripId=${encodeURIComponent(activeTripId || defaultTripId)}&key=${encodeURIComponent(activeShareKey || "")}`, { method: "DELETE" });
           saveIdeas(data.ideas || []);
           saveVersions(data.versions || getVersions());
           saveActiveVersionId(data.activeVersionId || activeVersionId);
@@ -3693,6 +3861,7 @@
 
     bootstrapGeneratedTrip();
     bindTripSwitcher();
+    document.getElementById("shareTripLink")?.addEventListener("click", copyTripShareLink);
     renderWorkspaceTab(activeTripTemplate === "australia" ? "overview" : "create");
     renderActiveDetail();
     syncStateFromServer().then(() => {

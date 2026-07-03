@@ -10,3 +10,15 @@ services:
         value: ep-m-20260604202245-c2cq2
       - key: VOLCENGINE_API_KEY
         sync: false
+      - key: LARK_APP_ID
+        sync: false
+      - key: LARK_APP_SECRET
+        sync: false
+      - key: LARK_BASE_TOKEN
+        value: C3Z1bFVfbanZlxs01uZlUQRXgLg
+      - key: LARK_TRIPS_TABLE_ID
+        value: tblvQcGaN0wOwNyC
+      - key: LARK_OPENAPI_BASE_URL
+        value: https://open.larksuite.com/open-apis
+      - key: DEFAULT_TRIP_ID
+        value: australia-2026

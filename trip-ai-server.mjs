@@ -13,6 +13,15 @@ const apiKey = process.env.VOLCENGINE_API_KEY || process.env.ARK_API_KEY || "";
 const model = process.env.ARK_MODEL || process.env.VOLCENGINE_MODEL || "ep-m-20260604202245-c2cq2";
 const baseUrl = (process.env.ARK_BASE_URL || "https://ark.cn-beijing.volces.com/api/v3").replace(/\/$/, "");
 const dataFile = process.env.DATA_FILE || join(__dirname, "trip-state.json");
+const defaultTripId = process.env.DEFAULT_TRIP_ID || "australia-2026";
+const larkOpenApiBase = (process.env.LARK_OPENAPI_BASE_URL || "https://open.larksuite.com/open-apis").replace(/\/$/, "");
+const larkAppId = process.env.LARK_APP_ID || "";
+const larkAppSecret = process.env.LARK_APP_SECRET || "";
+const larkBaseToken = process.env.LARK_BASE_TOKEN || "";
+const larkTripsTableId = process.env.LARK_TRIPS_TABLE_ID || "";
+const larkEnabled = Boolean(larkAppId && larkAppSecret && larkBaseToken && larkTripsTableId);
+let cachedLarkToken = null;
+let cachedLarkTokenExpiresAt = 0;
 
 async function loadLocalEnv(filePath) {
   try {
@@ -48,9 +57,17 @@ function sendJson(response, status, payload) {
     "Content-Type": "application/json; charset=utf-8",
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Headers": "Content-Type",
-    "Access-Control-Allow-Methods": "GET,POST,OPTIONS"
+    "Access-Control-Allow-Methods": "GET,POST,PATCH,DELETE,OPTIONS"
   });
   response.end(JSON.stringify(payload));
+}
+
+function createId(prefix = "trip") {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function createShareKey() {
+  return Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10);
 }
 
 async function readBody(request) {
@@ -66,6 +83,161 @@ function createDefaultState() {
     versions: [],
     activeVersionId: null,
     updatedAt: new Date().toISOString()
+  };
+}
+
+function createDefaultTripState(tripId = defaultTripId) {
+  return {
+    tripId,
+    shareKey: "",
+    title: tripId === defaultTripId ? "澳洲 10 晚示例行程" : "新的旅行计划",
+    activeTripTemplate: tripId === defaultTripId ? "australia" : "new",
+    basics: {},
+    constraints: {},
+    ideas: [],
+    generatedTrip: null,
+    versions: [],
+    activeVersionId: null,
+    budgetRows: [],
+    updatedAt: new Date().toISOString()
+  };
+}
+
+async function getLarkTenantToken() {
+  if (!larkEnabled) return "";
+  if (cachedLarkToken && Date.now() < cachedLarkTokenExpiresAt) return cachedLarkToken;
+  const response = await fetch(`${larkOpenApiBase}/auth/v3/tenant_access_token/internal`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json; charset=utf-8" },
+    body: JSON.stringify({
+      app_id: larkAppId,
+      app_secret: larkAppSecret
+    })
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.code !== 0 || !data.tenant_access_token) {
+    throw new Error(data.msg || data.message || "获取飞书应用访问令牌失败");
+  }
+  cachedLarkToken = data.tenant_access_token;
+  cachedLarkTokenExpiresAt = Date.now() + Math.max(60, Number(data.expire || 7200) - 300) * 1000;
+  return cachedLarkToken;
+}
+
+async function larkApi(path, options = {}) {
+  const token = await getLarkTenantToken();
+  const response = await fetch(`${larkOpenApiBase}${path}`, {
+    method: options.method || "GET",
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      Authorization: `Bearer ${token}`
+    },
+    body: options.body ? JSON.stringify(options.body) : undefined
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || (typeof data.code === "number" && data.code !== 0)) {
+    throw new Error(data.msg || data.message || `飞书 Base 请求失败：HTTP ${response.status}`);
+  }
+  return data;
+}
+
+function parseTripFields(fields = {}) {
+  let state = null;
+  try {
+    state = fields.dataJson ? JSON.parse(String(fields.dataJson)) : null;
+  } catch {
+    state = null;
+  }
+  return {
+    tripId: String(fields.tripId || state?.tripId || defaultTripId),
+    shareKey: String(fields.shareKey || state?.shareKey || ""),
+    recordId: "",
+    title: String(fields.title || state?.title || "旅行计划"),
+    destination: String(fields.destination || state?.basics?.destination || ""),
+    dateRange: String(fields.dateRange || state?.basics?.dates || ""),
+    state: state || createDefaultTripState(String(fields.tripId || defaultTripId))
+  };
+}
+
+async function listLarkTripRecords() {
+  if (!larkEnabled) return [];
+  const data = await larkApi(`/base/v3/bases/${larkBaseToken}/tables/${larkTripsTableId}/records?limit=200&offset=0`);
+  const items = data?.data?.items || data?.items || [];
+  return items.map(item => {
+    const parsed = parseTripFields(item.fields || {});
+    parsed.recordId = item.record_id || item.recordId || item.id || "";
+    return parsed;
+  });
+}
+
+async function readLarkTrip(tripId = defaultTripId) {
+  if (!larkEnabled) return null;
+  const records = await listLarkTripRecords();
+  return records.find(record => record.tripId === tripId) || null;
+}
+
+function ensureTripAccess(record, shareKey = "") {
+  if (!record) return;
+  const savedKey = String(record.shareKey || record.state?.shareKey || "");
+  if (savedKey && shareKey && savedKey !== shareKey) {
+    const error = new Error("分享链接校验失败。");
+    error.status = 403;
+    throw error;
+  }
+}
+
+function normalizeTripState(raw = {}, tripId = defaultTripId, shareKey = "") {
+  const nextTripId = String(raw.tripId || tripId || defaultTripId);
+  const nextShareKey = String(raw.shareKey || shareKey || createShareKey());
+  const basics = raw.basics && typeof raw.basics === "object" ? raw.basics : {};
+  return {
+    ...createDefaultTripState(nextTripId),
+    ...raw,
+    tripId: nextTripId,
+    shareKey: nextShareKey,
+    title: String(raw.title || basics.destination || "旅行计划"),
+    ideas: Array.isArray(raw.ideas) ? raw.ideas : [],
+    versions: Array.isArray(raw.versions) ? raw.versions : [],
+    budgetRows: Array.isArray(raw.budgetRows) ? raw.budgetRows : [],
+    generatedTrip: raw.generatedTrip || null,
+    activeVersionId: raw.activeVersionId || null,
+    updatedAt: new Date().toISOString()
+  };
+}
+
+async function writeLarkTrip(rawState, tripId = defaultTripId, shareKey = "") {
+  if (!larkEnabled) return null;
+  const state = normalizeTripState(rawState, tripId, shareKey);
+  const existing = await readLarkTrip(state.tripId);
+  if (existing) ensureTripAccess(existing, state.shareKey || shareKey);
+  const fields = {
+    tripId: state.tripId,
+    shareKey: state.shareKey,
+    title: state.title,
+    destination: String(state.basics?.destination || ""),
+    dateRange: String(state.basics?.dates || ""),
+    dataJson: JSON.stringify(state),
+    updatedAt: state.updatedAt
+  };
+  const path = existing?.recordId
+    ? `/base/v3/bases/${larkBaseToken}/tables/${larkTripsTableId}/records/${existing.recordId}`
+    : `/base/v3/bases/${larkBaseToken}/tables/${larkTripsTableId}/records`;
+  await larkApi(path, {
+    method: existing?.recordId ? "PATCH" : "POST",
+    body: fields
+  });
+  return state;
+}
+
+async function readTripState(tripId = defaultTripId, shareKey = "") {
+  const cloudTrip = await readLarkTrip(tripId);
+  if (cloudTrip) {
+    ensureTripAccess(cloudTrip, shareKey);
+    return normalizeTripState(cloudTrip.state, tripId, cloudTrip.shareKey || shareKey);
+  }
+  if (tripId !== defaultTripId || larkEnabled) return null;
+  return {
+    ...createDefaultTripState(defaultTripId),
+    ...(await readState())
   };
 }
 
@@ -114,6 +286,25 @@ function normalizeIdea(raw) {
     text: String(raw.text || "").trim(),
     createdAt: raw.createdAt || new Date().toLocaleString("zh-CN", { hour12: false })
   };
+}
+
+function getRequestTripId(url, payload = {}) {
+  return String(
+    payload.tripId
+    || payload.trip?.tripId
+    || url.searchParams.get("tripId")
+    || defaultTripId
+  );
+}
+
+function getRequestShareKey(url, payload = {}) {
+  return String(
+    payload.shareKey
+    || payload.trip?.shareKey
+    || url.searchParams.get("key")
+    || url.searchParams.get("shareKey")
+    || ""
+  );
 }
 
 function buildMessages(payload) {
@@ -318,18 +509,64 @@ const server = createServer(async (request, response) => {
       ok: true,
       model,
       baseUrl,
-      ready: Boolean(apiKey)
+      ready: Boolean(apiKey),
+      larkStorage: Boolean(larkEnabled),
+      defaultTripId
     });
     return;
   }
 
   if (url.pathname === "/api/state" && request.method === "GET") {
-    sendJson(response, 200, await readState());
+    try {
+      const tripId = getRequestTripId(url);
+      const shareKey = getRequestShareKey(url);
+      const tripState = await readTripState(tripId, shareKey);
+      sendJson(response, 200, tripState || createDefaultTripState(tripId));
+    } catch (error) {
+      sendJson(response, error.status || 500, { error: error.message || "读取行程失败" });
+    }
+    return;
+  }
+
+  if (url.pathname === "/api/trip" && request.method === "GET") {
+    try {
+      const tripId = getRequestTripId(url);
+      const shareKey = getRequestShareKey(url);
+      const tripState = await readTripState(tripId, shareKey);
+      if (!tripState) {
+        sendJson(response, 404, { error: "没有找到这个行程。", tripId });
+        return;
+      }
+      sendJson(response, 200, tripState);
+    } catch (error) {
+      sendJson(response, error.status || 500, { error: error.message || "读取行程失败" });
+    }
+    return;
+  }
+
+  if (url.pathname === "/api/trip" && request.method === "POST") {
+    try {
+      const body = await readBody(request);
+      const payload = body ? JSON.parse(body) : {};
+      const tripId = getRequestTripId(url, payload);
+      const shareKey = getRequestShareKey(url, payload);
+      const state = await writeLarkTrip(payload.state || payload, tripId, shareKey);
+      if (!state) {
+        const nextState = await writeState(payload.state || payload);
+        sendJson(response, 200, { ...nextState, tripId, shareKey });
+        return;
+      }
+      sendJson(response, 200, state);
+    } catch (error) {
+      sendJson(response, error.status || 500, { error: error.message || "保存行程失败" });
+    }
     return;
   }
 
   if (url.pathname === "/api/ideas" && request.method === "GET") {
-    const state = await readState();
+    const tripId = getRequestTripId(url);
+    const shareKey = getRequestShareKey(url);
+    const state = await readTripState(tripId, shareKey) || await readState();
     sendJson(response, 200, {
       ideas: state.ideas,
       generatedTrip: state.generatedTrip,
@@ -348,8 +585,13 @@ const server = createServer(async (request, response) => {
         sendJson(response, 400, { error: "请先填写具体想法。" });
         return;
       }
-      const state = await readState();
-      const nextState = await writeState({
+      const tripId = getRequestTripId(url, payload);
+      const shareKey = getRequestShareKey(url, payload);
+      const state = await readTripState(tripId, shareKey) || createDefaultTripState(tripId);
+      const nextState = larkEnabled ? await writeLarkTrip({
+        ...state,
+        ideas: [idea, ...state.ideas]
+      }, tripId, shareKey) : await writeState({
         ...state,
         ideas: [idea, ...state.ideas]
       });
@@ -367,7 +609,9 @@ const server = createServer(async (request, response) => {
   }
 
   if (url.pathname === "/api/ideas" && request.method === "DELETE") {
-    const state = await readState();
+    const tripId = getRequestTripId(url);
+    const shareKey = getRequestShareKey(url);
+    const state = await readTripState(tripId, shareKey) || await readState();
     const id = url.searchParams.get("id");
     const templateId = url.searchParams.get("templateId");
     const nextIdeas = id
@@ -375,7 +619,10 @@ const server = createServer(async (request, response) => {
       : templateId
         ? state.ideas.filter(idea => (idea.templateId || "australia") !== templateId)
         : [];
-    const nextState = await writeState({
+    const nextState = larkEnabled ? await writeLarkTrip({
+      ...state,
+      ideas: nextIdeas
+    }, tripId, shareKey) : await writeState({
       ...state,
       ideas: nextIdeas
     });
@@ -389,8 +636,16 @@ const server = createServer(async (request, response) => {
   }
 
   if (url.pathname === "/api/reset-plan" && request.method === "POST") {
-    const state = await readState();
-    const nextState = await writeState({
+    const body = await readBody(request);
+    const payload = body ? JSON.parse(body) : {};
+    const tripId = getRequestTripId(url, payload);
+    const shareKey = getRequestShareKey(url, payload);
+    const state = await readTripState(tripId, shareKey) || await readState();
+    const nextState = larkEnabled ? await writeLarkTrip({
+      ...state,
+      generatedTrip: null,
+      activeVersionId: null
+    }, tripId, shareKey) : await writeState({
       ...state,
       generatedTrip: null,
       activeVersionId: null
@@ -400,7 +655,9 @@ const server = createServer(async (request, response) => {
   }
 
   if (url.pathname === "/api/versions" && request.method === "GET") {
-    const state = await readState();
+    const tripId = getRequestTripId(url);
+    const shareKey = getRequestShareKey(url);
+    const state = await readTripState(tripId, shareKey) || await readState();
     sendJson(response, 200, {
       versions: state.versions,
       generatedTrip: state.generatedTrip,
@@ -413,13 +670,19 @@ const server = createServer(async (request, response) => {
     try {
       const body = await readBody(request);
       const payload = body ? JSON.parse(body) : {};
-      const state = await readState();
+      const tripId = getRequestTripId(url, payload);
+      const shareKey = getRequestShareKey(url, payload);
+      const state = await readTripState(tripId, shareKey) || await readState();
       const version = state.versions.find(item => item.id === payload.versionId);
       if (!version?.updatedTrip) {
         sendJson(response, 404, { error: "没有找到这个历史版本。" });
         return;
       }
-      const nextState = await writeState({
+      const nextState = larkEnabled ? await writeLarkTrip({
+        ...state,
+        generatedTrip: version.updatedTrip,
+        activeVersionId: version.id
+      }, tripId, shareKey) : await writeState({
         ...state,
         generatedTrip: version.updatedTrip,
         activeVersionId: version.id
@@ -435,7 +698,9 @@ const server = createServer(async (request, response) => {
     try {
       const body = await readBody(request);
       const payload = body ? JSON.parse(body) : {};
-      const state = await readState();
+      const tripId = getRequestTripId(url, payload);
+      const shareKey = getRequestShareKey(url, payload);
+      const state = await readTripState(tripId, shareKey) || await readState();
       const templateId = String(payload.trip?.templateId || "australia");
       const requestPayload = {
         ...payload,
@@ -445,7 +710,12 @@ const server = createServer(async (request, response) => {
       const normalizedTrip = normalizeGeneratedTrip(result.parsed, requestPayload);
       const version = normalizedTrip ? createVersionRecord(normalizedTrip) : null;
       const nextState = normalizedTrip
-        ? await writeState({
+        ? larkEnabled ? await writeLarkTrip({
+            ...state,
+            generatedTrip: normalizedTrip,
+            versions: [version, ...state.versions].slice(0, 20),
+            activeVersionId: version.id
+          }, tripId, shareKey) : await writeState({
             ...state,
             generatedTrip: normalizedTrip,
             versions: [version, ...state.versions].slice(0, 20),
