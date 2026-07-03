@@ -226,7 +226,7 @@ function parseVersionFields(fields = {}) {
 async function listLarkTripRecords() {
   if (!larkEnabled) return [];
   const data = await larkApi(`/base/v3/bases/${larkBaseToken}/tables/${larkTripsTableId}/records?limit=200&offset=0`);
-  const items = data?.data?.items || data?.items || [];
+  const items = getLarkRecordItems(data);
   return items.map(item => {
     const parsed = parseTripFields(item.fields || {});
     parsed.recordId = item.record_id || item.recordId || item.id || "";
@@ -236,14 +236,27 @@ async function listLarkTripRecords() {
 
 async function readLarkTrip(tripId = defaultTripId) {
   if (!larkEnabled) return null;
-  const records = await listLarkTripRecords();
+  const filter = encodeURIComponent(JSON.stringify({
+    logic: "and",
+    conditions: [["tripId", "==", tripId]]
+  }));
+  const data = await larkApi(`/base/v3/bases/${larkBaseToken}/tables/${larkTripsTableId}/records?field_id=tripId&field_id=shareKey&field_id=title&field_id=destination&field_id=dateRange&field_id=dataJson&field_id=updatedAt&filter=${filter}&limit=20&offset=0`);
+  const records = getLarkRecordItems(data).map(item => {
+    const parsed = parseTripFields(item.fields || {});
+    parsed.recordId = item.record_id || item.recordId || item.id || "";
+    return parsed;
+  });
   return records.find(record => record.tripId === tripId) || null;
 }
 
 async function listLarkVersionRecords(tripId = defaultTripId) {
   if (!larkVersionsEnabled) return [];
-  const data = await larkApi(`/base/v3/bases/${larkBaseToken}/tables/${larkVersionsTableId}/records?limit=200&offset=0`);
-  const items = data?.data?.items || data?.items || [];
+  const filter = encodeURIComponent(JSON.stringify({
+    logic: "and",
+    conditions: [["tripId", "==", tripId]]
+  }));
+  const data = await larkApi(`/base/v3/bases/${larkBaseToken}/tables/${larkVersionsTableId}/records?field_id=versionId&field_id=tripId&field_id=title&field_id=summary&field_id=createdAt&field_id=dataJson&filter=${filter}&limit=200&offset=0`);
+  const items = getLarkRecordItems(data);
   return items
     .map(item => {
       const parsed = parseVersionFields(item.fields || {});
@@ -252,6 +265,15 @@ async function listLarkVersionRecords(tripId = defaultTripId) {
     })
     .filter(version => version.tripId === tripId && version.id)
     .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+}
+
+function getLarkRecordItems(data = {}) {
+  return data?.data?.items
+    || data?.data?.records
+    || data?.items
+    || data?.records
+    || (Array.isArray(data?.data?.data) ? data.data.data : [])
+    || [];
 }
 
 function ensureTripAccess(record, shareKey = "") {
