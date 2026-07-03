@@ -19,7 +19,9 @@ const larkAppId = process.env.LARK_APP_ID || "";
 const larkAppSecret = process.env.LARK_APP_SECRET || "";
 const larkBaseToken = process.env.LARK_BASE_TOKEN || "";
 const larkTripsTableId = process.env.LARK_TRIPS_TABLE_ID || "";
+const larkVersionsTableId = process.env.LARK_VERSIONS_TABLE_ID || "tblozOB1lmp93z5S";
 const larkEnabled = Boolean(larkAppId && larkAppSecret && larkBaseToken && larkTripsTableId);
+const larkVersionsEnabled = Boolean(larkEnabled && larkVersionsTableId);
 let cachedLarkToken = null;
 let cachedLarkTokenExpiresAt = 0;
 
@@ -140,21 +142,84 @@ async function larkApi(path, options = {}) {
   return data;
 }
 
-function parseTripFields(fields = {}) {
+const tripFieldAliases = {
+  title: ["title", "fldXkID3xs"],
+  destination: ["destination", "fldPA59KjG"],
+  dateRange: ["dateRange", "fldEgjAOsG"],
+  dataJson: ["dataJson", "fldga4TS0Q"],
+  updatedAt: ["updatedAt", "fld4lwqbar"],
+  tripId: ["tripId", "fldxC7uTUY"],
+  shareKey: ["shareKey", "fld2lGVMPw"]
+};
+
+const versionFieldAliases = {
+  versionId: ["versionId", "flda6HBRni"],
+  tripId: ["tripId", "fldkdYYCIZ"],
+  title: ["title", "fldIRFLPIM"],
+  summary: ["summary", "fldbJdmV5K"],
+  createdAt: ["createdAt", "fld7mvrCPp"],
+  dataJson: ["dataJson", "fldvm0ujQK"]
+};
+
+function cellToText(value) {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return value.map(cellToText).join("");
+  if (typeof value === "object") {
+    if (value.text !== undefined) return cellToText(value.text);
+    if (value.value !== undefined) return cellToText(value.value);
+    if (value.name !== undefined) return cellToText(value.name);
+    if (value.link !== undefined && value.text === undefined) return cellToText(value.link);
+  }
+  return "";
+}
+
+function fieldText(fields = {}, aliases = [], fallback = "") {
+  for (const key of aliases) {
+    if (fields[key] !== undefined) {
+      const text = cellToText(fields[key]).trim();
+      if (text) return text;
+    }
+  }
+  return fallback;
+}
+
+function parseJsonField(value) {
+  const text = cellToText(value);
+  if (!text) return null;
   let state = null;
   try {
-    state = fields.dataJson ? JSON.parse(String(fields.dataJson)) : null;
+    state = JSON.parse(text);
   } catch {
     state = null;
   }
+  return state;
+}
+
+function parseTripFields(fields = {}) {
+  const state = parseJsonField(fields.dataJson ?? fields.fldga4TS0Q);
+  const tripId = fieldText(fields, tripFieldAliases.tripId, String(state?.tripId || defaultTripId));
   return {
-    tripId: String(fields.tripId || state?.tripId || defaultTripId),
-    shareKey: String(fields.shareKey || state?.shareKey || ""),
+    tripId,
+    shareKey: fieldText(fields, tripFieldAliases.shareKey, String(state?.shareKey || "")),
     recordId: "",
-    title: String(fields.title || state?.title || "旅行计划"),
-    destination: String(fields.destination || state?.basics?.destination || ""),
-    dateRange: String(fields.dateRange || state?.basics?.dates || ""),
-    state: state || createDefaultTripState(String(fields.tripId || defaultTripId))
+    title: fieldText(fields, tripFieldAliases.title, String(state?.title || "旅行计划")),
+    destination: fieldText(fields, tripFieldAliases.destination, String(state?.basics?.destination || "")),
+    dateRange: fieldText(fields, tripFieldAliases.dateRange, String(state?.basics?.dates || "")),
+    state: state || createDefaultTripState(tripId)
+  };
+}
+
+function parseVersionFields(fields = {}) {
+  const version = parseJsonField(fields.dataJson ?? fields.fldvm0ujQK) || {};
+  return {
+    ...version,
+    id: fieldText(fields, versionFieldAliases.versionId, String(version.id || "")),
+    tripId: fieldText(fields, versionFieldAliases.tripId, String(version.tripId || "")),
+    title: fieldText(fields, versionFieldAliases.title, String(version.title || "")),
+    summary: fieldText(fields, versionFieldAliases.summary, String(version.summary || "")),
+    createdAt: fieldText(fields, versionFieldAliases.createdAt, String(version.createdAt || "")),
+    recordId: ""
   };
 }
 
@@ -173,6 +238,20 @@ async function readLarkTrip(tripId = defaultTripId) {
   if (!larkEnabled) return null;
   const records = await listLarkTripRecords();
   return records.find(record => record.tripId === tripId) || null;
+}
+
+async function listLarkVersionRecords(tripId = defaultTripId) {
+  if (!larkVersionsEnabled) return [];
+  const data = await larkApi(`/base/v3/bases/${larkBaseToken}/tables/${larkVersionsTableId}/records?limit=200&offset=0`);
+  const items = data?.data?.items || data?.items || [];
+  return items
+    .map(item => {
+      const parsed = parseVersionFields(item.fields || {});
+      parsed.recordId = item.record_id || item.recordId || item.id || "";
+      return parsed;
+    })
+    .filter(version => version.tripId === tripId && version.id)
+    .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
 }
 
 function ensureTripAccess(record, shareKey = "") {
@@ -206,16 +285,25 @@ function normalizeTripState(raw = {}, tripId = defaultTripId, shareKey = "") {
 
 async function writeLarkTrip(rawState, tripId = defaultTripId, shareKey = "") {
   if (!larkEnabled) return null;
-  const state = normalizeTripState(rawState, tripId, shareKey);
-  const existing = await readLarkTrip(state.tripId);
-  if (existing) ensureTripAccess(existing, state.shareKey || shareKey);
+  const rawTripId = String(rawState?.tripId || tripId || defaultTripId);
+  const existing = await readLarkTrip(rawTripId);
+  ensureTripAccess(existing, shareKey || rawState?.shareKey || "");
+  const preservedShareKey = String(rawState?.shareKey || shareKey || existing?.shareKey || createShareKey());
+  const state = normalizeTripState(rawState, rawTripId, preservedShareKey);
+  if (larkVersionsEnabled && Array.isArray(state.versions) && state.versions.length) {
+    await Promise.all(state.versions.slice(0, 20).map(version => writeLarkVersion(version, state.tripId)));
+  }
+  const stateForTrip = {
+    ...state,
+    versions: []
+  };
   const fields = {
     tripId: state.tripId,
     shareKey: state.shareKey,
     title: state.title,
     destination: String(state.basics?.destination || ""),
     dateRange: String(state.basics?.dates || ""),
-    dataJson: JSON.stringify(state),
+    dataJson: JSON.stringify(stateForTrip),
     updatedAt: state.updatedAt
   };
   const path = existing?.recordId
@@ -223,16 +311,42 @@ async function writeLarkTrip(rawState, tripId = defaultTripId, shareKey = "") {
     : `/base/v3/bases/${larkBaseToken}/tables/${larkTripsTableId}/records`;
   await larkApi(path, {
     method: existing?.recordId ? "PATCH" : "POST",
-    body: fields
+    body: { fields }
   });
   return state;
+}
+
+async function writeLarkVersion(version, tripId = defaultTripId) {
+  if (!larkVersionsEnabled || !version?.id) return null;
+  const records = await listLarkVersionRecords(tripId);
+  const existing = records.find(item => item.id === version.id);
+  const fields = {
+    versionId: String(version.id),
+    tripId: String(tripId),
+    title: String(version.title || ""),
+    summary: String(version.summary || ""),
+    createdAt: String(version.createdAt || new Date().toISOString()),
+    dataJson: JSON.stringify({ ...version, tripId })
+  };
+  const path = existing?.recordId
+    ? `/base/v3/bases/${larkBaseToken}/tables/${larkVersionsTableId}/records/${existing.recordId}`
+    : `/base/v3/bases/${larkBaseToken}/tables/${larkVersionsTableId}/records`;
+  await larkApi(path, {
+    method: existing?.recordId ? "PATCH" : "POST",
+    body: { fields }
+  });
+  return { ...version, tripId };
 }
 
 async function readTripState(tripId = defaultTripId, shareKey = "") {
   const cloudTrip = await readLarkTrip(tripId);
   if (cloudTrip) {
     ensureTripAccess(cloudTrip, shareKey);
-    return normalizeTripState(cloudTrip.state, tripId, cloudTrip.shareKey || shareKey);
+    const state = normalizeTripState(cloudTrip.state, tripId, cloudTrip.shareKey || shareKey);
+    if (larkVersionsEnabled) {
+      state.versions = await listLarkVersionRecords(state.tripId);
+    }
+    return state;
   }
   if (tripId !== defaultTripId || larkEnabled) return null;
   return {

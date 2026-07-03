@@ -15,6 +15,7 @@
    - `LARK_APP_SECRET`: 飞书自建应用 App Secret
    - `LARK_BASE_TOKEN`: `C3Z1bFVfbanZlxs01uZlUQRXgLg`
    - `LARK_TRIPS_TABLE_ID`: `tblvQcGaN0wOwNyC`
+   - `LARK_VERSIONS_TABLE_ID`: `tblozOB1lmp93z5S`
    - `LARK_OPENAPI_BASE_URL`: `https://open.larksuite.com/open-apis`
    - `DEFAULT_TRIP_ID`: `australia-2026`
 5. 部署完成后，Render 会给一个公网 URL。
@@ -40,6 +41,7 @@ LARK_APP_ID=你的飞书应用AppID
 LARK_APP_SECRET=你的飞书应用AppSecret
 LARK_BASE_TOKEN=C3Z1bFVfbanZlxs01uZlUQRXgLg
 LARK_TRIPS_TABLE_ID=tblvQcGaN0wOwNyC
+LARK_VERSIONS_TABLE_ID=tblozOB1lmp93z5S
 LARK_OPENAPI_BASE_URL=https://open.larksuite.com/open-apis
 DEFAULT_TRIP_ID=australia-2026
 ```

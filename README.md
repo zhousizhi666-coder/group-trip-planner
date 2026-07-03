@@ -28,6 +28,7 @@ LARK_APP_ID=你的飞书应用AppID
 LARK_APP_SECRET=你的飞书应用AppSecret
 LARK_BASE_TOKEN=C3Z1bFVfbanZlxs01uZlUQRXgLg
 LARK_TRIPS_TABLE_ID=tblvQcGaN0wOwNyC
+LARK_VERSIONS_TABLE_ID=tblozOB1lmp93z5S
 LARK_OPENAPI_BASE_URL=https://open.larksuite.com/open-apis
 DEFAULT_TRIP_ID=australia-2026
 ```
@@ -59,6 +60,7 @@ http://127.0.0.1:8787
    - `LARK_APP_SECRET`
    - `LARK_BASE_TOKEN=C3Z1bFVfbanZlxs01uZlUQRXgLg`
    - `LARK_TRIPS_TABLE_ID=tblvQcGaN0wOwNyC`
+   - `LARK_VERSIONS_TABLE_ID=tblozOB1lmp93z5S`
    - `LARK_OPENAPI_BASE_URL=https://open.larksuite.com/open-apis`
    - `DEFAULT_TRIP_ID=australia-2026`
 
