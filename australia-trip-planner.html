@@ -1326,7 +1326,7 @@
           <span>Perth / Melbourne / Whitsundays / Sydney</span>
           <span class="trip-card-meta"><small>国家旅行</small><small>10 晚</small><small>多人共创</small></span>
         </button>
-        <button class="trip-card" type="button" data-trip-template="new">
+        <button class="trip-card" type="button" data-trip-template="custom">
           <strong>新建一段旅行</strong>
           <span>从目的地、时间、预算和必去点开始</span>
           <span class="trip-card-meta"><small>空白</small><small>可生成初版</small></span>
@@ -1519,6 +1519,7 @@
     const originalPlaces = JSON.parse(JSON.stringify(places));
     let activeWorkspaceTab = "overview";
     let activeTripTemplate = localStorage.getItem(activeTripTemplateStorageKey) || "australia";
+    if (activeTripTemplate === "new") activeTripTemplate = "custom";
     let activeTripId = urlParams.get("tripId") || localStorage.getItem(activeTripIdStorageKey) || defaultTripId;
     let activeShareKey = urlParams.get("key") || urlParams.get("shareKey") || localStorage.getItem(activeShareKeyStorageKey) || "";
     let activePlaceId = "perth";
@@ -1564,7 +1565,7 @@
         avoid: "不把长距离景点硬塞进唯一完整白天；避免一卧加沙发床",
         requirements: "三人同行，其中一对情侣；住宿尽量两间真实卧室；粉红湖、圣灵群岛和动物体验优先保留。"
       },
-      new: {
+      custom: {
         destination: "新的旅行目的地",
         scope: "自定义路线",
         dates: "待填写",
@@ -1664,10 +1665,24 @@
       if (!activeTripId || location.protocol === "file:") return;
       const nextUrl = new URL(location.href);
       nextUrl.searchParams.set("tripId", activeTripId);
-      if (activeShareKey) nextUrl.searchParams.set("key", activeShareKey);
+      if (activeShareKey) {
+        nextUrl.searchParams.set("key", activeShareKey);
+      } else {
+        nextUrl.searchParams.delete("key");
+        nextUrl.searchParams.delete("shareKey");
+      }
       history.replaceState(null, "", nextUrl.toString());
       localStorage.setItem(activeTripIdStorageKey, activeTripId);
-      if (activeShareKey) localStorage.setItem(activeShareKeyStorageKey, activeShareKey);
+      if (activeShareKey) {
+        localStorage.setItem(activeShareKeyStorageKey, activeShareKey);
+      } else {
+        localStorage.removeItem(activeShareKeyStorageKey);
+      }
+    }
+
+    function createClientTripId(templateId = activeTripTemplate) {
+      const prefix = templateId === "australia" ? "australia" : "trip";
+      return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     }
 
     async function copyTripShareLink() {
@@ -2017,7 +2032,14 @@
     }
 
     function setActiveTripTemplate(templateId) {
-      activeTripTemplate = tripTemplates[templateId] ? templateId : "australia";
+      const normalizedTemplateId = templateId === "new" ? "custom" : templateId;
+      activeTripTemplate = tripTemplates[normalizedTemplateId] ? normalizedTemplateId : "australia";
+      if (activeTripTemplate !== "australia" && activeTripId === defaultTripId) {
+        activeTripId = createClientTripId(activeTripTemplate);
+        activeShareKey = "";
+        localStorage.setItem(activeTripIdStorageKey, activeTripId);
+        localStorage.removeItem(activeShareKeyStorageKey);
+      }
       localStorage.setItem(activeTripTemplateStorageKey, activeTripTemplate);
       if (!hasScopedLocalStorage(tripBasicsStorageKey)) {
         saveTripBasics(tripTemplates[activeTripTemplate]);
@@ -2025,7 +2047,9 @@
       if (!hasScopedLocalStorage(tripConstraintsStorageKey)) {
         saveTripConstraints(getDefaultTripConstraints(activeTripTemplate));
       }
+      sharedIdeas = readLocalIdeas();
       sharedGeneratedTrip = readLocalGeneratedTrip();
+      sharedVersions = readLocalVersions();
       activeVersionId = localStorage.getItem(scopedStorageKey(activeVersionIdStorageKey)) || "";
       activePlaceId = getTripPlaceIds()[0] || "";
       document.querySelectorAll("[data-trip-template]").forEach(button => {
@@ -2867,6 +2891,7 @@
                 <button class="action-btn secondary" type="button" id="jumpToOverview">查看当前行程</button>
               </div>
               <p class="tagline" id="quickGenerateStatus">只需要先填目的地和日期；其他偏好直接写成自然语言即可。</p>
+              <div class="agent-output compact" id="quickGenerateOutput"></div>
             </form>
           </div>
 
@@ -2979,6 +3004,7 @@
           allowNewPlaces: true,
           generationMode: "initial",
           statusEl: document.getElementById("quickGenerateStatus"),
+          outputEl: document.getElementById("quickGenerateOutput"),
           buttonEl: document.getElementById("quickGenerateTrip"),
           successMessage: "已生成初版行程，可以进入总览继续调整。"
         }).catch(() => {});
