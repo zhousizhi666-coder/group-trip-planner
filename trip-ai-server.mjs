@@ -247,7 +247,9 @@ async function readLarkTrip(tripId = defaultTripId) {
     parsed.recordId = item.record_id || item.recordId || item.id || "";
     return parsed;
   });
-  return records.find(record => record.tripId === tripId) || null;
+  return records
+    .filter(record => record.tripId === tripId)
+    .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))[0] || null;
 }
 
 async function listLarkVersionRecords(tripId = defaultTripId) {
