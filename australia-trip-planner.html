@@ -1323,7 +1323,7 @@
         </div>
         <button class="trip-card active" type="button" data-trip-template="australia">
           <strong>澳洲 10 晚示例</strong>
-          <span>Perth / Melbourne / Whitsundays / Sydney</span>
+          <span id="australiaTripRouteLabel">珀斯 / 墨尔本 / 圣灵群岛 / 悉尼</span>
           <span class="trip-card-meta"><small>国家旅行</small><small>10 晚</small><small>多人共创</small></span>
         </button>
         <button class="trip-card" type="button" data-trip-template="custom">
@@ -1501,6 +1501,7 @@
     const detail = document.getElementById("detail");
     const workspaceTabsEl = document.getElementById("workspaceTabs");
     const workspaceBodyEl = document.getElementById("workspaceBody");
+    const australiaTripRouteLabelEl = document.getElementById("australiaTripRouteLabel");
     const ideaStorageKey = "australia-trip-ideas-v1";
     const generatedTripStorageKey = "australia-trip-generated-v1";
     const tripVersionsStorageKey = "australia-trip-versions-v1";
@@ -2052,6 +2053,7 @@
       document.querySelectorAll("[data-trip-template]").forEach(button => {
         button.classList.toggle("active", button.dataset.tripTemplate === activeTripTemplate);
       });
+      renderTripSwitcherCards();
       renderWorkspaceTab(activeTripTemplate === "australia" ? "overview" : "create");
       renderActiveDetail();
       queueTripCloudSave();
@@ -2062,6 +2064,7 @@
         button.classList.toggle("active", button.dataset.tripTemplate === activeTripTemplate);
         button.addEventListener("click", () => setActiveTripTemplate(button.dataset.tripTemplate));
       });
+      renderTripSwitcherCards();
     }
 
     function getIdeas() {
@@ -2257,6 +2260,15 @@
           return dateDiff || a.index - b.index;
         })
         .map(item => item.place);
+    }
+
+    function renderTripSwitcherCards() {
+      if (!australiaTripRouteLabelEl || activeTripTemplate !== "australia") return;
+      const routeLabel = getRouteOrderedPlaces()
+        .map(place => String(place?.name || "").trim())
+        .filter(Boolean)
+        .join(" / ");
+      australiaTripRouteLabelEl.textContent = routeLabel || "珀斯 / 墨尔本 / 圣灵群岛 / 悉尼";
     }
 
     function normalizePlace(candidate, fallback) {
@@ -3536,6 +3548,7 @@
 
     function renderWorkspaceTab(tabId = activeWorkspaceTab) {
       activeWorkspaceTab = tabId;
+      renderTripSwitcherCards();
       renderWorkspaceTabs();
       if (tabId === "create") {
         renderCreateTripTab();
@@ -3892,6 +3905,7 @@
         renderWorkspaceTab("overview");
         renderActiveDetail();
       }
+      renderTripSwitcherCards();
     });
   </script>
 </body>
