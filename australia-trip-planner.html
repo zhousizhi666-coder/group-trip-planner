@@ -1929,12 +1929,12 @@
     }
 
     function getDestinationSummary(destinations = getTripConstraints().destinations) {
-      const rows = normalizeDestinations(destinations);
+      const rows = normalizeDestinations(destinations, { preserveIds: true });
       return rows.length ? rows.map(item => `${item.name}（${item.nights}）`).join("；") : "未填写";
     }
 
     function getOrderedDestinations(constraints = getTripConstraints()) {
-      const destinations = normalizeDestinations(constraints.destinations);
+      const destinations = normalizeDestinations(constraints.destinations, { preserveIds: true });
       const byId = Object.fromEntries(destinations.map(destination => [destination.id, destination]));
       const ordered = (Array.isArray(constraints.order) ? constraints.order : [])
         .map(id => byId[id])
@@ -1978,7 +1978,7 @@
     }
 
     function saveTripConstraints(constraints) {
-      const destinations = normalizeDestinations(constraints.destinations);
+      const destinations = normalizeDestinations(constraints.destinations, { preserveIds: true });
       localStorage.setItem(getTripScopedStorageKey(tripConstraintsStorageKey), JSON.stringify({
         arrival: String(constraints.arrival || "").trim(),
         departure: String(constraints.departure || "").trim(),
@@ -2018,7 +2018,7 @@
       return JSON.stringify({
         arrival: String(constraints.arrival || "").trim(),
         departure: String(constraints.departure || "").trim(),
-        destinations: normalizeDestinations(constraints.destinations),
+        destinations: normalizeDestinations(constraints.destinations, { preserveIds: true }),
         orderMode: constraints.orderMode === "flexible" ? "flexible" : "fixed",
         order: Array.isArray(constraints.order) ? constraints.order : [],
         lodging: String(constraints.lodging || "").trim(),
@@ -2770,7 +2770,7 @@
     }
 
     function sortDestinationsForEditor(destinations, order) {
-      const normalized = normalizeDestinations(destinations);
+      const normalized = normalizeDestinations(destinations, { preserveIds: true });
       const byId = Object.fromEntries(normalized.map(destination => [destination.id, destination]));
       const ordered = (Array.isArray(order) ? order : []).map(id => byId[id]).filter(Boolean);
       const missing = normalized.filter(destination => !ordered.some(item => item.id === destination.id));
@@ -3073,7 +3073,7 @@
     }
 
     function hasConcreteDestinations(destinations) {
-      return normalizeDestinations(destinations).some(destination => !isPlaceholderValue(destination.name));
+      return normalizeDestinations(destinations, { preserveIds: true }).some(destination => !isPlaceholderValue(destination.name));
     }
 
     function summarizeStops(stops) {
