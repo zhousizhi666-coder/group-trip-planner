@@ -1564,37 +1564,37 @@
         requirements: "三人同行，其中一对情侣；住宿尽量两间真实卧室；粉红湖、圣灵群岛和动物体验优先保留。"
       },
       custom: {
-        destination: "新的旅行目的地",
-        scope: "自定义路线",
-        dates: "待填写",
-        travelers: "待填写",
-        budget: "待填写",
-        pace: "待填写：轻松 / 适中 / 紧凑",
-        mustGo: "列出必须去的地点、体验或餐厅",
-        avoid: "列出不想要的节奏、住宿、交通或预算限制",
-        requirements: "用自然语言写下这趟旅行的诉求，例如同行人、预算、住宿、必须去、不要太早起等。"
+        destination: "",
+        scope: "",
+        dates: "",
+        travelers: "",
+        budget: "",
+        pace: "",
+        mustGo: "",
+        avoid: "",
+        requirements: ""
       },
       city: {
-        destination: "城市短途",
-        scope: "城市旅行",
-        dates: "2-4 晚",
-        travelers: "待填写",
-        budget: "住宿便利优先，预算适中",
-        pace: "轻松到适中，减少跨区折返",
-        mustGo: "城市核心景点、当地餐厅、一个特色体验",
-        avoid: "避免每天换酒店；避免把远郊景点塞进同一天",
-        requirements: "希望城市动线顺，不频繁折返；住宿交通方便；保留当地餐厅和一个特色体验。"
+        destination: "",
+        scope: "",
+        dates: "",
+        travelers: "",
+        budget: "",
+        pace: "",
+        mustGo: "",
+        avoid: "",
+        requirements: ""
       },
       island: {
-        destination: "海岛度假",
-        scope: "省州旅行",
-        dates: "4-6 晚",
-        travelers: "待填写",
-        budget: "酒店/度假村体验优先，其他项目弹性控制",
-        pace: "轻松，保留天气弹性日",
-        mustGo: "优质住宿、出海/浮潜、日落、至少一个完全休息半天",
-        avoid: "避免每天高强度出海；避免为了打卡牺牲休息",
-        requirements: "度假体验优先，保留天气弹性日；住宿和出海体验比打卡数量更重要。"
+        destination: "",
+        scope: "",
+        dates: "",
+        travelers: "",
+        budget: "",
+        pace: "",
+        mustGo: "",
+        avoid: "",
+        requirements: ""
       }
     };
 
@@ -1623,21 +1623,14 @@
       }
 
       return {
-        arrival: "填写抵达时间、机场/车站和目的地",
-        departure: "填写返程时间、机场/车站和目的地",
-        destinations: [
-          { id: "destination-1", name: "目的地 1", nights: "待定" },
-          { id: "destination-2", name: "目的地 2", nights: "待定" }
-        ],
+        arrival: "",
+        departure: "",
+        destinations: [],
         orderMode: "flexible",
-        order: ["destination-1", "destination-2"],
-        lodging: "填写房型、床型、同住关系、位置偏好等住宿硬要求",
-        accommodationBudget: "填写住宿或全程预算上限",
-        fixedItems: [
-          "填写已经预订或必须保留的交通/酒店/门票",
-          "填写绝对不能删除的景点、体验或日期",
-          "填写需要避开的安排，例如太早起、频繁换酒店、长途折返"
-        ]
+        order: [],
+        lodging: "",
+        accommodationBudget: "",
+        fixedItems: []
       };
     }
 
@@ -2980,26 +2973,27 @@
         const dates = formatDateRange(startDate, endDate);
         const nights = getNightCount(startDate, endDate);
         const basicsPayload = {
-          destination: String(data.get("destination") || "").trim(),
+          destination,
           scope: "自动判断",
           dates,
-          travelers: basics.travelers,
-          budget: basics.budget,
-          pace: basics.pace,
+          travelers: "",
+          budget: "",
+          pace: "",
           mustGo: requirements,
-          avoid: basics.avoid,
+          avoid: "",
           requirements
         };
         saveTripBasics(basicsPayload);
         const destinationId = createConstraintId(destination || "destination");
         saveTripConstraints({
-          ...getTripConstraints(),
           arrival: startDate ? `${startDate} 抵达 ${destination || "目的地"}` : "",
           departure: endDate ? `${endDate} 返程` : "",
           destinations: destination ? [{ id: destinationId, name: destination, nights }] : [],
           orderMode: "flexible",
           order: destination ? [destinationId] : [],
-          fixedItems: requirements ? [requirements] : []
+          lodging: "",
+          accommodationBudget: "",
+          fixedItems: []
         });
         clearGeneratedTrip();
         try {
