@@ -1941,6 +1941,33 @@
       return getOrderedDestinations(constraints).map(item => item.name).join(" → ") || "固定，但还没有填写地点";
     }
 
+    function cleanStaleTemplateConstraints(constraints) {
+      if (activeTripTemplate === "australia") return { constraints, changed: false };
+      const australiaDefaults = getDefaultTripConstraints("australia");
+      const basics = getTripBasics();
+      const staleFixedText = new Set([
+        basics.requirements,
+        basics.mustGo,
+        ...australiaDefaults.fixedItems
+      ].map(item => String(item || "").trim()).filter(Boolean));
+      const next = { ...constraints };
+      let changed = false;
+
+      if (next.lodging === australiaDefaults.lodging) {
+        next.lodging = "";
+        changed = true;
+      }
+      if (next.accommodationBudget === australiaDefaults.accommodationBudget || next.accommodationBudget === "23000") {
+        next.accommodationBudget = "";
+        changed = true;
+      }
+      if (Array.isArray(next.fixedItems) && next.fixedItems.length && next.fixedItems.every(item => staleFixedText.has(String(item || "").trim()))) {
+        next.fixedItems = [];
+        changed = true;
+      }
+      return { constraints: next, changed };
+    }
+
     function getTripConstraints() {
       const defaults = getDefaultTripConstraints();
       try {
@@ -1957,7 +1984,7 @@
         const orderMode = saved.orderMode
           ? (saved.orderMode === "flexible" ? "flexible" : "fixed")
           : (defaults.orderMode || "flexible");
-        return {
+        const merged = {
           ...defaults,
           ...saved,
           destinations: fallbackDestinations,
@@ -1965,6 +1992,9 @@
           order,
           fixedItems: Array.isArray(saved.fixedItems) ? saved.fixedItems : defaults.fixedItems
         };
+        const cleaned = cleanStaleTemplateConstraints(merged);
+        if (cleaned.changed) saveTripConstraints(cleaned.constraints);
+        return cleaned.constraints;
       } catch {
         return defaults;
       }
