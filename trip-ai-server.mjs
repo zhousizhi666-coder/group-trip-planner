@@ -805,11 +805,11 @@ const server = createServer(async (request, response) => {
     const nextState = larkEnabled ? await writeLarkTrip({
       ...state,
       generatedTrip: null,
-      activeVersionId: null
+      activeVersionId: "initial"
     }, tripId, shareKey) : await writeState({
       ...state,
       generatedTrip: null,
-      activeVersionId: null
+      activeVersionId: "initial"
     });
     sendJson(response, 200, nextState);
     return;

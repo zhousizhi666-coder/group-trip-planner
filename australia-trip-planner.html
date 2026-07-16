@@ -1607,6 +1607,7 @@
     const generatedTripStorageKey = "australia-trip-generated-v1";
     const tripVersionsStorageKey = "australia-trip-versions-v1";
     const activeVersionIdStorageKey = "australia-trip-active-version-v1";
+    const initialVersionId = "initial";
     const budgetStorageKey = "australia-trip-budget-v1";
     const tripBasicsStorageKey = "group-trip-basics-v1";
     const tripConstraintsStorageKey = "group-trip-hard-constraints-v1";
@@ -2302,11 +2303,15 @@
       queueTripCloudSave();
     }
 
-    function clearGeneratedTrip() {
+    function clearGeneratedTrip(nextActiveVersionId = "") {
       sharedGeneratedTrip = null;
       localStorage.removeItem(getTripScopedStorageKey(generatedTripStorageKey));
-      activeVersionId = "";
-      localStorage.removeItem(getTripScopedStorageKey(activeVersionIdStorageKey));
+      activeVersionId = nextActiveVersionId || "";
+      if (activeVersionId) {
+        localStorage.setItem(getTripScopedStorageKey(activeVersionIdStorageKey), activeVersionId);
+      } else {
+        localStorage.removeItem(getTripScopedStorageKey(activeVersionIdStorageKey));
+      }
       queueTripCloudSave();
     }
 
@@ -2522,9 +2527,9 @@
       return changed;
     }
 
-    function restoreOriginalPlaces() {
+    function restoreOriginalPlaces(nextActiveVersionId = "") {
       if (!isAustraliaTemplate()) {
-        clearGeneratedTrip();
+        clearGeneratedTrip(nextActiveVersionId);
         activePlaceId = getTripPlaceIds()[0] || "";
         return;
       }
@@ -2535,7 +2540,7 @@
           places[currentIndex] = JSON.parse(JSON.stringify(fallback));
         }
       });
-      clearGeneratedTrip();
+      clearGeneratedTrip(nextActiveVersionId);
     }
 
     function bootstrapGeneratedTrip() {
@@ -2973,7 +2978,9 @@
         saveVersions(state.versions || sharedVersions || []);
         const serverTripTemplate = state.generatedTrip ? (state.generatedTrip.templateId || "australia") : "";
         const serverActiveVersion = (state.versions || []).find(version => version.id === state.activeVersionId);
-        const serverActiveTemplate = serverActiveVersion ? (serverActiveVersion.templateId || serverActiveVersion.updatedTrip?.templateId || "australia") : serverTripTemplate;
+        const serverActiveTemplate = state.activeVersionId === initialVersionId
+          ? activeTripTemplate
+          : serverActiveVersion ? (serverActiveVersion.templateId || serverActiveVersion.updatedTrip?.templateId || "australia") : serverTripTemplate;
         saveActiveVersionId(serverActiveTemplate === activeTripTemplate ? state.activeVersionId || "" : activeVersionId);
         if (
           state.generatedTrip
@@ -2983,7 +2990,7 @@
           saveGeneratedTrip(state.generatedTrip);
           applyGeneratedPlaces(state.generatedTrip.updatedPlaces);
         } else if (!getGeneratedTrip()) {
-          restoreOriginalPlaces();
+          restoreOriginalPlaces(state.activeVersionId === initialVersionId ? initialVersionId : "");
         }
         refreshNavForCurrentPlace();
         renderIdeaList();
@@ -3746,21 +3753,42 @@
       syncStateFromServer();
     }
 
+    function getInitialVersionInfo() {
+      const basics = getTripBasics();
+      const constraints = getTripConstraints();
+      if (isAustraliaTemplate()) {
+        return {
+          title: "澳洲 10 晚示例行程",
+          tagline: "包含珀斯 3 晚、墨尔本 2 晚、圣灵群岛 3 晚、悉尼 2 晚，以及粉红湖 + 尖峰石阵两日游。"
+        };
+      }
+      const destination = basics.destination || constraints.destinations?.[0]?.name || "当前旅行";
+      const dateText = basics.dates ? `，${basics.dates}` : "";
+      const destinationText = getDestinationSummary(constraints.destinations);
+      const orderText = getOrderSummary(constraints);
+      return {
+        title: `${destination} 初始行程`,
+        tagline: `地点和晚数：${destinationText}${dateText}。顺序要求：${orderText}。`
+      };
+    }
+
     function renderVersionsTab() {
       const generated = getGeneratedTrip();
       const versions = getVersions();
+      const initialVersionInfo = getInitialVersionInfo();
+      const isInitialActive = !generated && (!activeVersionId || activeVersionId === initialVersionId);
       workspaceBodyEl.innerHTML = `
         <div class="version-list">
           <article class="version-card">
-            <strong>初始版本：澳洲 10 晚示例行程</strong>
-            <p class="tagline">包含珀斯 3 晚、墨尔本 2 晚、圣灵群岛 3 晚、悉尼 2 晚，以及粉红湖 + 尖峰石阵两日游。</p>
+            <strong>初始版本：${escapeHTML(initialVersionInfo.title)}${isInitialActive ? "（当前）" : ""}</strong>
+            <p class="tagline">${escapeHTML(initialVersionInfo.tagline)}</p>
             <div class="button-row">
               <button class="action-btn secondary" type="button" id="restoreFromVersions">恢复初始版本</button>
             </div>
           </article>
           <article class="version-card">
-            <strong>当前协作版本：${generated ? "旅行计划 Agent 生成版" : "尚未生成新版"}</strong>
-            <p class="tagline">${generated ? escapeHTML(generated.summary || "已根据大家建议生成新版计划。") : "提交大家的想法后，可以在“大家的想法”里生成新版计划。"}</p>
+            <strong>当前协作版本：${generated ? "旅行计划 Agent 生成版" : "初始版本"}</strong>
+            <p class="tagline">${generated ? escapeHTML(generated.summary || "已根据大家建议生成新版计划。") : "当前正在使用初始版本；提交大家的想法后，可以在“大家的想法”里生成新版计划。"}</p>
             ${generated?.agentReport ? `
               <div class="agent-grid">
                 <div class="agent-check"><b>硬约束检查</b><ul>${(generated.agentReport.hardConstraintCheck || []).map(item => `<li>${escapeHTML(item)}</li>`).join("") || "<li>等待 Agent 生成后展示。</li>"}</ul></div>
@@ -3808,11 +3836,11 @@
               body: JSON.stringify({ tripId: activeTripId || defaultTripId, shareKey: activeShareKey })
             });
             saveVersions(state.versions || getVersions());
-            saveActiveVersionId("");
+            saveActiveVersionId(state.activeVersionId || initialVersionId);
           } catch {
             // Local fallback keeps the page usable when opened as a file.
           }
-          restoreOriginalPlaces();
+          restoreOriginalPlaces(initialVersionId);
           refreshNavForCurrentPlace();
           renderWorkspaceTab("versions");
         });
@@ -4105,11 +4133,11 @@
               body: JSON.stringify({ tripId: activeTripId || defaultTripId, shareKey: activeShareKey })
             });
             saveVersions(state.versions || getVersions());
-            saveActiveVersionId("");
+            saveActiveVersionId(state.activeVersionId || initialVersionId);
           } catch {
             // Local fallback keeps the page usable when opened as a file.
           }
-          restoreOriginalPlaces();
+          restoreOriginalPlaces(initialVersionId);
           refreshNavForCurrentPlace();
           refreshIdeaExport();
           const status = document.getElementById("aiStatus");
