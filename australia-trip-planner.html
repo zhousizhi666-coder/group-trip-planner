@@ -1834,17 +1834,23 @@
     async function runTripOperation({
       statusLabel = "处理中",
       overlayTitle = "",
-      buttonEl = null
+      buttonEl = null,
+      minVisibleMs = 650
     } = {}, operation) {
       const requestTripId = String(activeTripId || defaultTripId);
       const requestTemplateId = activeTripTemplate;
       const requestTitle = getTripDisplayTitle(requestTemplateId);
       if (isTripGenerating(requestTripId)) return null;
       if (buttonEl) buttonEl.disabled = true;
+      const startedAt = Date.now();
       beginTripGeneration(requestTripId, requestTemplateId, requestTitle, { statusLabel, overlayTitle });
       try {
         return await operation();
       } finally {
+        const remainingMs = minVisibleMs - (Date.now() - startedAt);
+        if (remainingMs > 0) {
+          await new Promise(resolve => window.setTimeout(resolve, remainingMs));
+        }
         if (buttonEl) buttonEl.disabled = false;
         endTripGeneration(requestTripId);
       }
