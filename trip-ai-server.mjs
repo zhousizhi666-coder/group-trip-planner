@@ -23,6 +23,7 @@ const larkVersionsTableId = process.env.LARK_VERSIONS_TABLE_ID || "tblozOB1lmp93
 const larkEnabled = Boolean(larkAppId && larkAppSecret && larkBaseToken && larkTripsTableId);
 const larkVersionsEnabled = Boolean(larkEnabled && larkVersionsTableId);
 const storageVersion = "lark-upsert-v3";
+const agentPromptTemplate = await loadAgentPrompt(join(__dirname, "agent-prompt.md"));
 let cachedLarkToken = null;
 let cachedLarkTokenExpiresAt = 0;
 
@@ -45,6 +46,29 @@ async function loadLocalEnv(filePath) {
   } catch {
     // Local env files are optional; deployment platforms should use real env vars.
   }
+}
+
+async function loadAgentPrompt(filePath) {
+  try {
+    return await readFile(filePath, "utf8");
+  } catch {
+    return [
+      "你是一个严谨、专业、现实主义的旅行计划 Agent，不是简单旅游文案生成器。",
+      "必须用中文回答。",
+      "必须优先保证往返日期、城市顺序、航班/交通时间锚点不被随意改动。",
+      "{{FIXED_ORDER_INSTRUCTION}}",
+      "{{PLACE_ID_INSTRUCTION}}",
+      "必须严格遵守时间窗：17:00 以后抵达城市，当天不能再安排下午游玩，只能安排入住、晚餐或休息。",
+      "只返回 JSON，不要返回 Markdown，不要使用代码块。",
+      "JSON 格式必须是：{ summary: string, agentReport: AgentReport, changes: string[], updatedPlaces: Place[] }。"
+    ].join("\n");
+  }
+}
+
+function renderAgentPrompt(template, replacements) {
+  return String(template || "")
+    .replaceAll("{{FIXED_ORDER_INSTRUCTION}}", replacements.fixedOrderInstruction || "")
+    .replaceAll("{{PLACE_ID_INSTRUCTION}}", replacements.placeIdInstruction || "");
 }
 
 const mimeTypes = {
@@ -485,32 +509,15 @@ function buildMessages(payload) {
     : constraints.orderMode === "fixed"
     ? `当前用户选择了固定顺序，这是不可改写的硬约束。你必须让 updatedPlaces 按这个顺序输出：${placeIds.join(" -> ")}。如果交通或日期存在冲突，也必须先保留这个顺序，再在 conflicts/nextChecks 中说明需要人工核验或调整航班，不能自行改回其他顺序。`
     : "当前用户没有固定路线顺序，你可以在不破坏往返和固定事项的前提下优化目的地顺序。";
+  const systemPrompt = renderAgentPrompt(agentPromptTemplate, {
+    fixedOrderInstruction,
+    placeIdInstruction
+  });
 
   return [
     {
       role: "system",
-      content: [
-        "你是一个严谨的旅行计划 Agent，不是简单文案生成器。",
-        "必须用中文回答。",
-        "你要按 Agent 工作流完成：1) 理解硬约束；2) 判断同行建议的优先级和冲突；3) 更新行程；4) 自检日期、城市顺序、住宿偏好和交通时间；5) 给出下一步人工核验事项。",
-        "必须优先保证往返日期、城市顺序、航班/交通时间锚点不被随意改动。",
-        fixedOrderInstruction,
-        "用户是三人同行，其中一对情侣，住宿偏好是一套房内两个真实卧室。",
-        "输出要具体到每个城市的上午、下午、晚上，并说明采纳/不采纳同行建议的原因。",
-        "如果建议会破坏硬约束，明确指出冲突，并给替代方案。",
-        "只返回 JSON，不要返回 Markdown，不要使用代码块。",
-        "JSON 格式必须是：{ summary: string, agentReport: AgentReport, changes: string[], updatedPlaces: Place[] }。",
-        "AgentReport 字段必须包含 adoptedIdeas, rejectedIdeas, conflicts, hardConstraintCheck, nextChecks。",
-        "adoptedIdeas/rejectedIdeas/conflicts/hardConstraintCheck/nextChecks 都是字符串数组。",
-        "Place 字段必须包含 id, name, dates, objective, thesis, hotels, transport, advice, days。",
-        "objective 是这个地点的抽象目标或阶段重点，必须基于该地点本身总结，不能沿用其他城市旧摘要；例如“负责动物体验与城市过渡”“海岛度假核心”“返程前城市收尾”。",
-        "初版生成时，如果是国家/省州/多城市旅行，可以输出 2-6 个目的地模块；如果是城市旅行，则输出 1 个城市模块并把每日安排写细。",
-        "hotels 是二维数组，每项为 [名称, 建议]。",
-        "transport 和 advice 是字符串数组。",
-        "days 是二维数组，每项为 [日期标题, 上午, 下午, 晚上]。",
-        placeIdInstruction,
-        "如果这是新的旅行计划，绝对不要沿用澳洲示例中的 Perth/Melbourne/Whitsundays/Sydney，除非这些地点确实在当前行程目的地列表里。"
-      ].join("\n")
+      content: systemPrompt
     },
     {
       role: "user",
