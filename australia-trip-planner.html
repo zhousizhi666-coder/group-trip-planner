@@ -3248,24 +3248,42 @@
                 <textarea name="fixedItems" placeholder="例如：9/27-9/28 粉红湖 + 尖峰石阵两日游">${escapeHTML((constraints.fixedItems || []).join("\n"))}</textarea>
               </label>
               <div class="button-row">
-                <button class="action-btn" type="submit" id="saveConstraintsAndGenerate">保存并重新生成</button>
                 <button class="action-btn secondary" type="button" id="resetConstraints">恢复默认硬约束</button>
               </div>
             </form>
-            <div class="note" id="constraintGenerateStatus">这里的内容会直接进入在线推演。点击保存后会自动生成一次新版行程。</div>
+            <div class="note" id="constraintGenerateStatus">这里的内容会直接进入在线推演；需要生成时点击左侧的“快速生成初版行程”。</div>
           </div>
 
           <div class="block">
             <h4>后续怎么共创</h4>
             <ul class="list">
               <li>先用上方三个输入快速生成初版。</li>
-              <li>如果要锁死航班、酒店、城市顺序，再改硬约束并保存。</li>
+              <li>如果要锁死航班、酒店、城市顺序，先改右侧硬约束；上方生成会自动读取这些约束。</li>
               <li>大家的想法模块仍然单独收集建议，并可单独触发一次共创生成。</li>
             </ul>
-            <div class="note">硬约束保存会默认重排当前行程；共创模块的“生成新版计划”只在你收集同行建议后使用。</div>
+            <div class="note">硬约束会作为生成时的输入；共创模块的“生成新版计划”只在你收集同行建议后使用。</div>
           </div>
         </div>
       `;
+
+      function readRenderedConstraintsForm(fallbackConstraints) {
+        const form = document.getElementById("tripConstraintsForm");
+        if (!form) return fallbackConstraints;
+        const data = new FormData(form);
+        const destinations = getDestinationRowsFromForm(form);
+        const validIds = new Set(destinations.map(destination => destination.id));
+        const order = getOrderFromSortableList().filter(id => validIds.has(id));
+        return {
+          arrival: data.get("arrival"),
+          departure: data.get("departure"),
+          destinations,
+          orderMode: data.get("orderMode"),
+          order: order.length ? order : destinations.map(destination => destination.id),
+          lodging: data.get("lodging"),
+          accommodationBudget: data.get("accommodationBudget"),
+          fixedItems: String(data.get("fixedItems") || "").split("\n")
+        };
+      }
 
       document.getElementById("tripBasicsForm")?.addEventListener("submit", async event => {
         event.preventDefault();
@@ -3289,7 +3307,7 @@
         };
         saveTripBasics(basicsPayload);
         const destinationId = createConstraintId(destination || "destination");
-        saveTripConstraints({
+        const quickConstraints = {
           arrival: startDate ? `${startDate} 抵达 ${destination || "目的地"}` : "",
           departure: endDate ? `${endDate} 返程` : "",
           destinations: destination ? [{ id: destinationId, name: destination, nights }] : [],
@@ -3298,7 +3316,10 @@
           lodging: "",
           accommodationBudget: "",
           fixedItems: []
-        });
+        };
+        const renderedConstraints = readRenderedConstraintsForm(quickConstraints);
+        const hasRenderedDestinations = Array.isArray(renderedConstraints.destinations) && renderedConstraints.destinations.length;
+        saveTripConstraints(hasRenderedDestinations ? renderedConstraints : quickConstraints);
         clearGeneratedTrip();
         try {
           await fetchJson("/api/reset-plan", {
@@ -3317,42 +3338,13 @@
         }).catch(() => {});
       });
 
-      document.getElementById("tripConstraintsForm")?.addEventListener("submit", async event => {
+      document.getElementById("tripConstraintsForm")?.addEventListener("submit", event => {
         event.preventDefault();
-        const form = event.currentTarget;
-        const data = new FormData(event.currentTarget);
-        const destinations = getDestinationRowsFromForm(form);
-        const validIds = new Set(destinations.map(destination => destination.id));
-        const order = getOrderFromSortableList().filter(id => validIds.has(id));
-        const nextConstraints = {
-          arrival: data.get("arrival"),
-          departure: data.get("departure"),
-          destinations,
-          orderMode: data.get("orderMode"),
-          order: order.length ? order : destinations.map(destination => destination.id),
-          lodging: data.get("lodging"),
-          accommodationBudget: data.get("accommodationBudget"),
-          fixedItems: String(data.get("fixedItems") || "").split("\n")
-        };
+        const nextConstraints = readRenderedConstraintsForm(getTripConstraints());
         saveTripConstraints(nextConstraints);
-        clearGeneratedTrip();
-        try {
-          await fetchJson("/api/reset-plan", {
-            method: "POST",
-            body: JSON.stringify({ tripId: activeTripId || defaultTripId, shareKey: activeShareKey })
-          });
-        } catch {}
-        activePlaceId = nextConstraints.order[0] || destinations[0]?.id || "";
-        await generateTripPlan({
-          prompt: buildIdeaExport(),
-          generationMode: "constraints",
-          statusEl: document.getElementById("constraintGenerateStatus"),
-          buttonEl: document.getElementById("saveConstraintsAndGenerate"),
-          successMessage: "已保存硬约束，并基于新约束重新生成行程。"
-        }).catch(() => {
-          renderWorkspaceTab("overview");
-          renderActiveDetail();
-        });
+        activePlaceId = nextConstraints.order[0] || nextConstraints.destinations?.[0]?.id || "";
+        const status = document.getElementById("constraintGenerateStatus");
+        if (status) status.textContent = "硬约束已保存；需要生成时点击左侧的“快速生成初版行程”。";
       });
 
       document.getElementById("resetConstraints")?.addEventListener("click", () => {
