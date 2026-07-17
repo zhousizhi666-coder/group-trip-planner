@@ -1785,8 +1785,12 @@
       return activeCard?.textContent?.trim() || "这段旅行";
     }
 
-    function isTripGenerating(tripId = activeTripId || defaultTripId) {
-      return generatingTrips.has(String(tripId || defaultTripId));
+    function getGenerationKey(tripId = activeTripId || defaultTripId, templateId = activeTripTemplate) {
+      return `${String(tripId || defaultTripId)}::${String(templateId || "australia")}`;
+    }
+
+    function isTripGenerating(tripId = activeTripId || defaultTripId, templateId = activeTripTemplate) {
+      return generatingTrips.has(getGenerationKey(tripId, templateId));
     }
 
     function getGeneratingTripForTemplate(templateId) {
@@ -1795,7 +1799,7 @@
 
     function refreshGenerationUi() {
       const currentTripId = String(activeTripId || defaultTripId);
-      const currentGeneration = generatingTrips.get(currentTripId);
+      const currentGeneration = generatingTrips.get(getGenerationKey(currentTripId, activeTripTemplate));
       if (tripGenerationOverlayEl) {
         tripGenerationOverlayEl.classList.toggle("is-hidden", !currentGeneration);
         tripGenerationOverlayEl.setAttribute("aria-hidden", currentGeneration ? "false" : "true");
@@ -1814,7 +1818,7 @@
     }
 
     function beginTripGeneration(tripId, templateId, title, options = {}) {
-      generatingTrips.set(String(tripId || defaultTripId), {
+      generatingTrips.set(getGenerationKey(tripId, templateId), {
         tripId: String(tripId || defaultTripId),
         templateId: templateId || activeTripTemplate,
         title: title || "当前行程",
@@ -1826,10 +1830,16 @@
       refreshGenerationUi();
     }
 
-    function endTripGeneration(tripId) {
-      generatingTrips.delete(String(tripId || defaultTripId));
+    function endTripGeneration(tripId, templateId = activeTripTemplate) {
+      generatingTrips.delete(getGenerationKey(tripId, templateId));
       renderTripSwitcherCards();
       refreshGenerationUi();
+    }
+
+    function waitForNextPaint() {
+      return new Promise(resolve => {
+        window.requestAnimationFrame(() => window.requestAnimationFrame(resolve));
+      });
     }
 
     async function runTripOperation({
@@ -1841,7 +1851,7 @@
       const requestTripId = String(activeTripId || defaultTripId);
       const requestTemplateId = activeTripTemplate;
       const requestTitle = getTripDisplayTitle(requestTemplateId);
-      if (isTripGenerating(requestTripId)) return null;
+      if (isTripGenerating(requestTripId, requestTemplateId)) return null;
       if (buttonEl) buttonEl.disabled = true;
       const startedAt = Date.now();
       beginTripGeneration(requestTripId, requestTemplateId, requestTitle, { statusLabel, overlayTitle });
@@ -1853,7 +1863,7 @@
           await new Promise(resolve => window.setTimeout(resolve, remainingMs));
         }
         if (buttonEl) buttonEl.disabled = false;
-        endTripGeneration(requestTripId);
+        endTripGeneration(requestTripId, requestTemplateId);
       }
     }
 
@@ -2773,7 +2783,8 @@
       statusEl,
       outputEl,
       buttonEl,
-      successMessage = "已生成并更新行程总览和城市模块。"
+      successMessage = "已生成并更新行程总览和城市模块。",
+      generationAlreadyStarted = false
     } = {}) {
       const requestTripId = String(activeTripId || defaultTripId);
       const requestShareKey = activeShareKey;
@@ -2783,7 +2794,7 @@
       const requestPrompt = prompt || buildIdeaExport();
       const requestFingerprint = requestTripPayload.constraintsFingerprint || getConstraintsFingerprint();
 
-      if (isTripGenerating(requestTripId)) {
+      if (!generationAlreadyStarted && isTripGenerating(requestTripId, requestTemplateId)) {
         if (statusEl) statusEl.textContent = "这段行程已经在生成中，请稍等。";
         if (outputEl) outputEl.textContent = "正在生成中，请不要重复提交。你可以先切换到其他行程查看。";
         refreshGenerationUi();
@@ -2793,7 +2804,11 @@
       if (statusEl) statusEl.textContent = "正在生成新版计划...";
       if (outputEl) outputEl.textContent = "生成中，请稍等。";
       if (buttonEl) buttonEl.disabled = true;
-      beginTripGeneration(requestTripId, requestTemplateId, requestTitle);
+      if (!generationAlreadyStarted) {
+        beginTripGeneration(requestTripId, requestTemplateId, requestTitle);
+      } else {
+        refreshGenerationUi();
+      }
 
       try {
         const response = await fetch(getApiEndpoint(), {
@@ -2857,7 +2872,7 @@
         throw error;
       } finally {
         if (buttonEl) buttonEl.disabled = false;
-        endTripGeneration(requestTripId);
+        endTripGeneration(requestTripId, requestTemplateId);
       }
     }
 
@@ -3287,6 +3302,25 @@
 
       document.getElementById("tripBasicsForm")?.addEventListener("submit", async event => {
         event.preventDefault();
+        const requestTripId = String(activeTripId || defaultTripId);
+        const requestTemplateId = activeTripTemplate;
+        const requestTitle = getTripDisplayTitle(requestTemplateId);
+        const quickGenerateButton = document.getElementById("quickGenerateTrip");
+        const quickGenerateStatus = document.getElementById("quickGenerateStatus");
+        const quickGenerateOutput = document.getElementById("quickGenerateOutput");
+        if (isTripGenerating(requestTripId, requestTemplateId)) {
+          if (quickGenerateStatus) quickGenerateStatus.textContent = "这段行程已经在生成中，请稍等。";
+          return;
+        }
+        if (quickGenerateButton) quickGenerateButton.disabled = true;
+        if (quickGenerateStatus) quickGenerateStatus.textContent = "正在生成新版计划...";
+        if (quickGenerateOutput) quickGenerateOutput.textContent = "生成中，请稍等。";
+        beginTripGeneration(requestTripId, requestTemplateId, requestTitle, {
+          statusLabel: "生成中",
+          overlayTitle: "正在生成初版行程"
+        });
+        await waitForNextPaint();
+
         const data = new FormData(event.currentTarget);
         const destination = String(data.get("destination") || "").trim();
         const startDate = String(data.get("startDate") || "").trim();
@@ -3331,11 +3365,17 @@
           prompt: buildQuickStartPrompt(basicsPayload),
           allowNewPlaces: true,
           generationMode: "initial",
-          statusEl: document.getElementById("quickGenerateStatus"),
-          outputEl: document.getElementById("quickGenerateOutput"),
-          buttonEl: document.getElementById("quickGenerateTrip"),
-          successMessage: "已生成初版行程，可以进入总览继续调整。"
-        }).catch(() => {});
+          statusEl: quickGenerateStatus,
+          outputEl: quickGenerateOutput,
+          buttonEl: quickGenerateButton,
+          successMessage: "已生成初版行程，可以进入总览继续调整。",
+          generationAlreadyStarted: true
+        }).catch(error => {
+          if (quickGenerateStatus) quickGenerateStatus.textContent = "调用失败。";
+          if (quickGenerateOutput) quickGenerateOutput.textContent = error?.message || "在线推演服务暂时不可用，请稍后再试。";
+          endTripGeneration(requestTripId, requestTemplateId);
+          if (quickGenerateButton) quickGenerateButton.disabled = false;
+        });
       });
 
       document.getElementById("tripConstraintsForm")?.addEventListener("submit", event => {
