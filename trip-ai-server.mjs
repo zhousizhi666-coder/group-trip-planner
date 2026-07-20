@@ -504,10 +504,16 @@ function buildMessages(payload) {
     ? `updatedPlaces 只能包含当前行程目的地 id：${placeIds.join(", ")}。不要返回不在这个列表里的旧示例城市 id。`
     : "如果当前行程还没有目的地 id，请先基于硬约束中的地点生成稳定 id，并在 updatedPlaces 中使用这些 id。";
   const constraints = currentTrip.constraints && typeof currentTrip.constraints === "object" ? currentTrip.constraints : {};
+  const destinationOrderWithNights = Array.isArray(constraints.destinations)
+    ? constraints.destinations
+        .map(destination => `${String(destination?.id || destination?.name || "").trim()}（${String(destination?.name || destination?.id || "").trim()}，${String(destination?.nights || "待定").trim()}）`)
+        .filter(item => item && !item.startsWith("（"))
+        .join(" -> ")
+    : "";
   const fixedOrderInstruction = allowNewPlaces
     ? "这是初版生成，你需要先判断目的地应拆成几个模块，并给出合理顺序；如果用户只填了一个城市，就不要硬拆多个城市。"
     : constraints.orderMode === "fixed"
-    ? `当前用户选择了固定顺序，这是不可改写的硬约束。你必须让 updatedPlaces 按这个顺序输出：${placeIds.join(" -> ")}。如果交通或日期存在冲突，也必须先保留这个顺序，再在 conflicts/nextChecks 中说明需要人工核验或调整航班，不能自行改回其他顺序。`
+    ? `当前用户选择了固定顺序，这是不可改写的硬约束。你必须让 updatedPlaces 按这个顺序输出：${placeIds.join(" -> ")}。固定顺序对应的目的地和晚数是：${destinationOrderWithNights || "未填写晚数"}。你必须按这个顺序从抵达日期开始重新分配每个目的地 dates，不能沿用旧版本里某个城市的旧日期。如果交通、晚数或日期存在冲突，也必须先保留这个顺序，再在 conflicts/nextChecks 中说明需要人工核验或调整航班，不能自行改回其他顺序，也不能输出顺序和日期互相打架的计划。`
     : "当前用户没有固定路线顺序，你可以在不破坏往返和固定事项的前提下优化目的地顺序。";
   const systemPrompt = renderAgentPrompt(agentPromptTemplate, {
     fixedOrderInstruction,
