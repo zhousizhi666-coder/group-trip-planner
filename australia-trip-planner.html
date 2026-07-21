@@ -2517,6 +2517,10 @@
 
     function applyGeneratedPlaces(updatedPlaces) {
       if (!Array.isArray(updatedPlaces)) return false;
+      if (!isAustraliaTemplate()) {
+        const validIds = new Set(getCurrentTemplatePlaces().map(place => place.id));
+        return updatedPlaces.some(place => place?.id && validIds.has(place.id));
+      }
       const fallbackPlaces = isAustraliaTemplate()
         ? getFallbackPlacesFromConstraints()
         : getCurrentTemplatePlaces();
@@ -3376,8 +3380,14 @@
           fixedItems: []
         };
         const renderedConstraints = readRenderedConstraintsForm(quickConstraints);
-        const hasRenderedDestinations = Array.isArray(renderedConstraints.destinations) && renderedConstraints.destinations.length;
-        saveTripConstraints(!shouldCreateFreshTrip && hasRenderedDestinations ? renderedConstraints : quickConstraints);
+        saveTripConstraints({
+          ...quickConstraints,
+          lodging: renderedConstraints.lodging || quickConstraints.lodging,
+          accommodationBudget: renderedConstraints.accommodationBudget || quickConstraints.accommodationBudget,
+          fixedItems: Array.isArray(renderedConstraints.fixedItems) && renderedConstraints.fixedItems.length
+            ? renderedConstraints.fixedItems
+            : quickConstraints.fixedItems
+        });
         clearGeneratedTrip();
         try {
           await fetchJson("/api/reset-plan", {
