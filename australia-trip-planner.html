@@ -3041,6 +3041,17 @@
       };
     }
 
+    function readGeneratedTripConstraints(generatedTrip) {
+      try {
+        const parsed = JSON.parse(String(generatedTrip?.constraintsFingerprint || ""));
+        return parsed && typeof parsed === "object" && Array.isArray(parsed.destinations)
+          ? parsed
+          : null;
+      } catch {
+        return null;
+      }
+    }
+
     function applyTripCloudState(state) {
       if (!state || typeof state !== "object") return false;
       isHydratingTripState = true;
@@ -3051,7 +3062,12 @@
       localStorage.setItem(activeTripIdStorageKey, activeTripId);
       if (activeShareKey) localStorage.setItem(activeShareKeyStorageKey, activeShareKey);
       if (state.basics) localStorage.setItem(getTripScopedStorageKey(tripBasicsStorageKey), JSON.stringify(state.basics));
-      if (state.constraints) localStorage.setItem(getTripScopedStorageKey(tripConstraintsStorageKey), JSON.stringify(state.constraints));
+      const generatedConstraints = readGeneratedTripConstraints(state.generatedTrip);
+      const resolvedConstraints = generatedConstraints || state.constraints;
+      if (resolvedConstraints) {
+        localStorage.setItem(getTripScopedStorageKey(tripConstraintsStorageKey), JSON.stringify(resolvedConstraints));
+        state.constraints = resolvedConstraints;
+      }
       if (Array.isArray(state.budgetRows)) localStorage.setItem(getTripScopedStorageKey(budgetStorageKey), JSON.stringify(state.budgetRows));
       sharedIdeas = Array.isArray(state.ideas) ? state.ideas : [];
       localStorage.setItem(getTripScopedStorageKey(ideaStorageKey), JSON.stringify(sharedIdeas));
