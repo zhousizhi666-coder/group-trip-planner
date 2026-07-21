@@ -2854,7 +2854,9 @@
 
         if (isStillActiveTrip) {
           const applied = applyGeneratedPlaces(nextGeneratedTrip.updatedPlaces);
-          if (!applied) {
+          const hasGeneratedPlaceDetails = Array.isArray(nextGeneratedTrip.updatedPlaces)
+            && nextGeneratedTrip.updatedPlaces.some(place => place?.name);
+          if (!applied && !(allowNewPlaces && !isAustraliaTemplate() && hasGeneratedPlaceDetails)) {
             throw new Error("新版计划格式不完整，暂未更新行程模块。");
           }
           saveGeneratedTrip(nextGeneratedTrip);
