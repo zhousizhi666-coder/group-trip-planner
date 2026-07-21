@@ -12,6 +12,7 @@ const host = process.env.HOST || "0.0.0.0";
 const apiKey = process.env.VOLCENGINE_API_KEY || process.env.ARK_API_KEY || "";
 const model = process.env.ARK_MODEL || process.env.VOLCENGINE_MODEL || "ep-m-20260604202245-c2cq2";
 const baseUrl = (process.env.ARK_BASE_URL || "https://ark.cn-beijing.volces.com/api/v3").replace(/\/$/, "");
+const arkTimeoutMs = Number(process.env.ARK_TIMEOUT_MS || 90000);
 const dataFile = process.env.DATA_FILE || join(__dirname, "trip-state.json");
 const defaultTripId = process.env.DEFAULT_TRIP_ID || "australia-2026";
 const larkOpenApiBase = (process.env.LARK_OPENAPI_BASE_URL || "https://open.larksuite.com/open-apis").replace(/\/$/, "");
@@ -325,12 +326,8 @@ function getLarkRecordItems(data = {}) {
 
 function ensureTripAccess(record, shareKey = "") {
   if (!record) return;
-  const savedKey = String(record.shareKey || record.state?.shareKey || "");
-  if (savedKey && shareKey && savedKey !== shareKey) {
-    const error = new Error("分享链接校验失败。");
-    error.status = 403;
-    throw error;
-  }
+  // This is currently a private site, so tripId is enough to load/edit a trip.
+  // Keep shareKey persisted for share links, but do not block cross-device access.
 }
 
 function normalizeTripState(raw = {}, tripId = defaultTripId, shareKey = "") {
@@ -613,19 +610,34 @@ async function callArk(payload) {
     throw error;
   }
 
-  const response = await fetch(`${baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({
-      model,
-      messages: buildMessages(payload),
-      temperature: 0.35,
-      max_tokens: 4000
-    })
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), arkTimeoutMs);
+  let response;
+  try {
+    response = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model,
+        messages: buildMessages(payload),
+        temperature: 0.35,
+        max_tokens: 4000
+      })
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      const timeoutError = new Error("模型生成超时，请减少约束内容或稍后重试。");
+      timeoutError.status = 504;
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   const text = await response.text();
   let data;

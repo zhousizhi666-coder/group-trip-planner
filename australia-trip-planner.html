@@ -2810,9 +2810,13 @@
         refreshGenerationUi();
       }
 
+      let timeout = null;
       try {
+        const controller = new AbortController();
+        timeout = window.setTimeout(() => controller.abort(), 130000);
         const response = await fetch(getApiEndpoint(), {
           method: "POST",
+          signal: controller.signal,
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             trip: requestTripPayload,
@@ -2821,6 +2825,8 @@
             prompt: requestPrompt
           })
         });
+        window.clearTimeout(timeout);
+        timeout = null;
         const data = await response.json().catch(() => ({}));
         if (!response.ok) {
           throw new Error(data.error || `请求失败：HTTP ${response.status}`);
@@ -2865,12 +2871,15 @@
         return data;
       } catch (error) {
         if (statusEl) statusEl.textContent = "调用失败。";
-        const message = error instanceof TypeError && /fetch/i.test(error.message)
-          ? "在线推演服务暂时不可用，请确认网站服务已经启动后再试。"
-          : (error.message || "在线推演服务暂时不可用，请稍后再试。");
+        const message = error?.name === "AbortError"
+          ? "在线推演超时了，请减少硬约束内容或稍后重试。"
+          : error instanceof TypeError && /fetch/i.test(error.message)
+            ? "在线推演服务暂时不可用，请确认网站服务已经启动后再试。"
+            : (error.message || "在线推演服务暂时不可用，请稍后再试。");
         if (outputEl) outputEl.textContent = message;
         throw error;
       } finally {
+        if (timeout) window.clearTimeout(timeout);
         if (buttonEl) buttonEl.disabled = false;
         endTripGeneration(requestTripId, requestTemplateId);
       }
@@ -3328,6 +3337,20 @@
         const requirements = String(data.get("requirements") || "").trim();
         const dates = formatDateRange(startDate, endDate);
         const nights = getNightCount(startDate, endDate);
+        const shouldCreateFreshTrip = activeTripTemplate === "australia" || activeTripId === defaultTripId;
+        if (shouldCreateFreshTrip) {
+          activeTripTemplate = "custom";
+          activeTripId = createClientTripId("custom");
+          activeShareKey = "";
+          sharedIdeas = [];
+          sharedGeneratedTrip = null;
+          sharedVersions = [];
+          activeVersionId = "";
+          localStorage.setItem(activeTripTemplateStorageKey, activeTripTemplate);
+          localStorage.setItem(activeTripIdStorageKey, activeTripId);
+          localStorage.removeItem(activeShareKeyStorageKey);
+          updateTripUrl();
+        }
         const basicsPayload = {
           destination,
           scope: "自动判断",
@@ -3353,7 +3376,7 @@
         };
         const renderedConstraints = readRenderedConstraintsForm(quickConstraints);
         const hasRenderedDestinations = Array.isArray(renderedConstraints.destinations) && renderedConstraints.destinations.length;
-        saveTripConstraints(hasRenderedDestinations ? renderedConstraints : quickConstraints);
+        saveTripConstraints(!shouldCreateFreshTrip && hasRenderedDestinations ? renderedConstraints : quickConstraints);
         clearGeneratedTrip();
         try {
           await fetchJson("/api/reset-plan", {
