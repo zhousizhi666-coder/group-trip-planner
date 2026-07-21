@@ -3311,24 +3311,9 @@
 
       document.getElementById("tripBasicsForm")?.addEventListener("submit", async event => {
         event.preventDefault();
-        const requestTripId = String(activeTripId || defaultTripId);
-        const requestTemplateId = activeTripTemplate;
-        const requestTitle = getTripDisplayTitle(requestTemplateId);
         const quickGenerateButton = document.getElementById("quickGenerateTrip");
         const quickGenerateStatus = document.getElementById("quickGenerateStatus");
         const quickGenerateOutput = document.getElementById("quickGenerateOutput");
-        if (isTripGenerating(requestTripId, requestTemplateId)) {
-          if (quickGenerateStatus) quickGenerateStatus.textContent = "这段行程已经在生成中，请稍等。";
-          return;
-        }
-        if (quickGenerateButton) quickGenerateButton.disabled = true;
-        if (quickGenerateStatus) quickGenerateStatus.textContent = "正在生成新版计划...";
-        if (quickGenerateOutput) quickGenerateOutput.textContent = "生成中，请稍等。";
-        beginTripGeneration(requestTripId, requestTemplateId, requestTitle, {
-          statusLabel: "生成中",
-          overlayTitle: "正在生成初版行程"
-        });
-        await waitForNextPaint();
 
         const data = new FormData(event.currentTarget);
         const destination = String(data.get("destination") || "").trim();
@@ -3351,6 +3336,22 @@
           localStorage.removeItem(activeShareKeyStorageKey);
           updateTripUrl();
         }
+        const requestTripId = String(activeTripId || defaultTripId);
+        const requestTemplateId = activeTripTemplate;
+        const requestTitle = getTripDisplayTitle(requestTemplateId);
+        if (isTripGenerating(requestTripId, requestTemplateId)) {
+          if (quickGenerateStatus) quickGenerateStatus.textContent = "这段行程已经在生成中，请稍等。";
+          return;
+        }
+        if (quickGenerateButton) quickGenerateButton.disabled = true;
+        if (quickGenerateStatus) quickGenerateStatus.textContent = "正在生成新版计划...";
+        if (quickGenerateOutput) quickGenerateOutput.textContent = "生成中，请稍等。";
+        beginTripGeneration(requestTripId, requestTemplateId, requestTitle, {
+          statusLabel: "生成中",
+          overlayTitle: "正在生成初版行程"
+        });
+        await waitForNextPaint();
+
         const basicsPayload = {
           destination,
           scope: "自动判断",
