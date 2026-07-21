@@ -2448,11 +2448,17 @@
       const generated = getGeneratedTrip();
       if (Array.isArray(generated?.updatedPlaces) && generated.updatedPlaces.length) {
         const fallbackById = Object.fromEntries(fallbackPlaces.map(place => [place.id, place]));
+        const fallbackByName = Object.fromEntries(fallbackPlaces.map(place => [place.name, place]));
         const validIds = new Set(fallbackPlaces.map(place => place.id));
         const generatedById = Object.fromEntries(
           generated.updatedPlaces
-            .filter(place => validIds.has(place.id))
-            .map(place => [place.id, normalizeCustomPlace(place, fallbackById[place.id])])
+            .map(place => {
+              const fallback = fallbackById[place.id] || fallbackByName[place.name];
+              if (!fallback && !validIds.has(place.id)) return null;
+              const normalized = normalizeCustomPlace({ ...place, id: fallback?.id || place.id }, fallback);
+              return [normalized.id, normalized];
+            })
+            .filter(Boolean)
         );
         const mergedPlaces = fallbackPlaces.map(place => generatedById[place.id] || place);
         return orderPlacesByConstraints(mergedPlaces, constraints);
@@ -2518,8 +2524,10 @@
     function applyGeneratedPlaces(updatedPlaces) {
       if (!Array.isArray(updatedPlaces)) return false;
       if (!isAustraliaTemplate()) {
-        const validIds = new Set(getCurrentTemplatePlaces().map(place => place.id));
-        return updatedPlaces.some(place => place?.id && validIds.has(place.id));
+        const currentPlaces = getCurrentTemplatePlaces();
+        const validIds = new Set(currentPlaces.map(place => place.id));
+        const validNames = new Set(currentPlaces.map(place => place.name));
+        return updatedPlaces.some(place => (place?.id && validIds.has(place.id)) || (place?.name && validNames.has(place.name)));
       }
       const fallbackPlaces = isAustraliaTemplate()
         ? getFallbackPlacesFromConstraints()
