@@ -143,6 +143,7 @@ JSON 格式必须是：
     {
       "id": "string",
       "name": "string",
+      "nights": "string，例如 3晚",
       "dates": "string",
       "objective": "string",
       "thesis": "string",
@@ -160,6 +161,7 @@ JSON 格式必须是：
 - hotels 必须是二维数组，每项为 [名称, 建议]。
 - transport 和 advice 必须是字符串数组。
 - days 必须是二维数组，每项为 [日期标题, 上午, 下午, 晚上]。
+- nights 必须严格复制用户为该目的地填写的晚数；用户未填写时才允许由 Agent 分配。
 - 如果没有同行建议，adoptedIdeas 可以写“暂无同行建议，本次基于基础约束生成”。
 - 如果没有冲突，conflicts 可以写“未发现硬约束冲突”。
 

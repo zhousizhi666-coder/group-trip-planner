@@ -2091,10 +2091,11 @@
             : createConstraintId(name);
           if (seen.has(id)) id = `${id}-${index + 1}`;
           seen.add(id);
+          const rawNights = String(destination?.nights || "").trim();
           return {
             id,
             name,
-            nights: String(destination?.nights || "").trim() || "待定"
+            nights: /^\d+$/.test(rawNights) ? `${rawNights}晚` : (rawNights || "待定")
           };
         })
         .filter(Boolean);
@@ -2169,7 +2170,7 @@
       try {
         const saved = JSON.parse(readScopedLocalStorage(tripConstraintsStorageKey, "null") || "null");
         if (!saved || typeof saved !== "object") return defaults;
-        const savedDestinations = normalizeDestinations(saved.destinations);
+        const savedDestinations = normalizeDestinations(saved.destinations, { preserveIds: true });
         const destinations = savedDestinations.length
           ? savedDestinations
           : parseDestinationsFromNights(saved.nights || defaults.nights);
@@ -2726,21 +2727,101 @@
       };
     }
 
+    function extractNightsFromDateRange(dateText) {
+      const dateMatches = [...String(dateText || "").matchAll(/(?:(\d{4})[-/年])?(\d{1,2})(?:[-/月])(\d{1,2})/g)];
+      if (dateMatches.length >= 2) {
+        const fallbackYear = Number(getBasicsDateRange().start.slice(0, 4)) || new Date().getFullYear();
+        const toUtcDate = (dateMatch, yearOffset = 0) => Date.UTC(
+          Number(dateMatch[1] || fallbackYear) + yearOffset,
+          Number(dateMatch[2]) - 1,
+          Number(dateMatch[3])
+        );
+        const start = toUtcDate(dateMatches[0]);
+        let end = toUtcDate(dateMatches[1]);
+        if (end < start && !dateMatches[1][1]) end = toUtcDate(dateMatches[1], 1);
+        const nightCount = Math.round((end - start) / 86400000);
+        if (nightCount >= 0) return `${nightCount}晚`;
+      }
+      return "待定";
+    }
+
     function extractNightsFromPlace(place) {
-      const text = `${place?.dates || ""} ${place?.objective || ""}`;
+      const text = `${place?.nights || ""} ${place?.objective || ""}`;
       const match = text.match(/(\d+)\s*晚/);
-      return match ? `${match[1]}晚` : "待定";
+      return match ? `${match[1]}晚` : extractNightsFromDateRange(place?.dates);
+    }
+
+    function hasExplicitDestinationNights(destinations) {
+      return normalizeDestinations(destinations, { preserveIds: true })
+        .some(destination => /\d+\s*晚/.test(destination.nights));
+    }
+
+    function validateGeneratedDestinationNights(updatedPlaces, constraints) {
+      const expectedDestinations = normalizeDestinations(constraints?.destinations, { preserveIds: true })
+        .filter(destination => /\d+\s*晚/.test(destination.nights));
+      if (!expectedDestinations.length) return;
+
+      const generatedPlaces = Array.isArray(updatedPlaces) ? updatedPlaces : [];
+      const normalizeLookupKey = value => String(value || "").trim().toLowerCase();
+      const generatedById = new Map(generatedPlaces.map(place => [normalizeLookupKey(place?.id), place]));
+      const generatedByName = new Map(generatedPlaces.map(place => [normalizeLookupKey(place?.name), place]));
+      const errors = expectedDestinations.flatMap(destination => {
+        const generatedPlace = generatedByName.get(normalizeLookupKey(destination.name))
+          || generatedById.get(normalizeLookupKey(destination.id));
+        if (!generatedPlace) return [`缺少 ${destination.name}`];
+        const actualNights = extractNightsFromPlace(generatedPlace);
+        const dateRangeNights = extractNightsFromDateRange(generatedPlace?.dates);
+        const mismatch = actualNights !== destination.nights
+          || (dateRangeNights !== "待定" && dateRangeNights !== destination.nights);
+        return mismatch
+          ? [`${destination.name} 应为 ${destination.nights}，Agent 返回晚数 ${actualNights}、日期范围对应 ${dateRangeNights}`]
+          : [];
+      });
+      if (errors.length) {
+        throw new Error(`Agent 没有遵守地点晚数硬约束：${errors.join("；")}。本次结果未写入，请重新生成。`);
+      }
+    }
+
+    function alignGeneratedPlacesToConstraints(updatedPlaces, constraints) {
+      const constrainedDestinations = normalizeDestinations(constraints?.destinations, { preserveIds: true });
+      if (!constrainedDestinations.length) return updatedPlaces;
+
+      const normalizeLookupKey = value => String(value || "").trim().toLowerCase();
+      const constrainedByName = new Map(constrainedDestinations.map(destination => [
+        normalizeLookupKey(destination.name),
+        destination
+      ]));
+      const constrainedById = new Map(constrainedDestinations.map(destination => [
+        normalizeLookupKey(destination.id),
+        destination
+      ]));
+      return (Array.isArray(updatedPlaces) ? updatedPlaces : []).map(place => {
+        const destination = constrainedByName.get(normalizeLookupKey(place?.name))
+          || constrainedById.get(normalizeLookupKey(place?.id));
+        return destination
+          ? {
+              ...place,
+              id: destination.id,
+              name: destination.name,
+              nights: destination.nights
+            }
+          : place;
+      });
     }
 
     function adoptGeneratedDestinations(updatedPlaces) {
       const generatedPlaces = Array.isArray(updatedPlaces) ? updatedPlaces.filter(place => place?.name) : [];
       if (!generatedPlaces.length) return false;
+      const current = getTripConstraints();
+      if (hasExplicitDestinationNights(current.destinations)) {
+        activePlaceId = getOrderedDestinations(current)[0]?.id || current.destinations[0]?.id || "";
+        return true;
+      }
       const destinations = normalizeDestinations(generatedPlaces.map((place, index) => ({
         id: place.id || createConstraintId(place.name || `destination-${index + 1}`),
         name: place.name,
         nights: extractNightsFromPlace(place)
       })), { preserveIds: true });
-      const current = getTripConstraints();
       saveTripConstraints({
         ...current,
         destinations,
@@ -2780,6 +2861,7 @@
     function persistGeneratedDestinationsForTrip(updatedPlaces, tripId, constraints) {
       const generatedPlaces = Array.isArray(updatedPlaces) ? updatedPlaces.filter(place => place?.name) : [];
       if (!generatedPlaces.length) return false;
+      if (hasExplicitDestinationNights(constraints?.destinations)) return true;
       const destinations = normalizeDestinations(generatedPlaces.map((place, index) => ({
         id: place.id || createConstraintId(place.name || `destination-${index + 1}`),
         name: place.name,
@@ -2858,6 +2940,11 @@
           templateId: data.updatedTrip.templateId || requestTemplateId,
           constraintsFingerprint: data.updatedTrip.constraintsFingerprint || requestFingerprint
         };
+        validateGeneratedDestinationNights(nextGeneratedTrip.updatedPlaces, requestTripPayload.constraints || {});
+        nextGeneratedTrip.updatedPlaces = alignGeneratedPlacesToConstraints(
+          nextGeneratedTrip.updatedPlaces,
+          requestTripPayload.constraints || {}
+        );
         const isStillActiveTrip = requestTripId === String(activeTripId || defaultTripId)
           && requestTemplateId === activeTripTemplate;
 
@@ -3104,11 +3191,11 @@
         const name = row.querySelector("[name='destinationName']")?.value || "";
         const nights = row.querySelector("[name='destinationNights']")?.value || "";
         return {
-          id: createConstraintId(name || `destination-${index + 1}`),
+          id: row.dataset.destinationId || createConstraintId(name || `destination-${index + 1}`),
           name: String(name).trim(),
           nights: String(nights).trim() || "待定"
         };
-      }).filter(destination => destination.name));
+      }).filter(destination => destination.name), { preserveIds: true });
     }
 
     function sortDestinationsForEditor(destinations, order) {
@@ -3383,12 +3470,23 @@
           fixedItems: []
         };
         const renderedConstraints = readRenderedConstraintsForm(quickConstraints);
+        const renderedDestinations = normalizeDestinations(renderedConstraints.destinations, { preserveIds: true });
+        const nextDestinations = renderedDestinations.length ? renderedDestinations : quickConstraints.destinations;
+        const validDestinationIds = new Set(nextDestinations.map(item => item.id));
+        const renderedOrder = Array.isArray(renderedConstraints.order)
+          ? renderedConstraints.order.filter(id => validDestinationIds.has(id))
+          : [];
         saveTripConstraints({
           ...quickConstraints,
+          arrival: String(renderedConstraints.arrival || "").trim() || quickConstraints.arrival,
+          departure: String(renderedConstraints.departure || "").trim() || quickConstraints.departure,
+          destinations: nextDestinations,
+          orderMode: renderedConstraints.orderMode || quickConstraints.orderMode,
+          order: renderedOrder.length ? renderedOrder : nextDestinations.map(item => item.id),
           lodging: renderedConstraints.lodging || quickConstraints.lodging,
           accommodationBudget: renderedConstraints.accommodationBudget || quickConstraints.accommodationBudget,
-          fixedItems: Array.isArray(renderedConstraints.fixedItems) && renderedConstraints.fixedItems.length
-            ? renderedConstraints.fixedItems
+          fixedItems: Array.isArray(renderedConstraints.fixedItems) && renderedConstraints.fixedItems.some(item => String(item || "").trim())
+            ? renderedConstraints.fixedItems.map(item => String(item || "").trim()).filter(Boolean)
             : quickConstraints.fixedItems
         });
         clearGeneratedTrip();
