@@ -2251,11 +2251,18 @@
     function setActiveTripTemplate(templateId) {
       const normalizedTemplateId = templateId === "new" ? "custom" : templateId;
       activeTripTemplate = tripTemplates[normalizedTemplateId] ? normalizedTemplateId : "australia";
-      if (activeTripTemplate !== "australia" && activeTripId === defaultTripId) {
+      if (activeTripTemplate === "australia") {
+        activeTripId = defaultTripId;
+        activeShareKey = "";
+        localStorage.setItem(activeTripIdStorageKey, activeTripId);
+        localStorage.removeItem(activeShareKeyStorageKey);
+        updateTripUrl();
+      } else if (activeTripId === defaultTripId) {
         activeTripId = createClientTripId(activeTripTemplate);
         activeShareKey = "";
         localStorage.setItem(activeTripIdStorageKey, activeTripId);
         localStorage.removeItem(activeShareKeyStorageKey);
+        updateTripUrl();
       }
       localStorage.setItem(activeTripTemplateStorageKey, activeTripTemplate);
       if (!hasScopedLocalStorage(tripBasicsStorageKey)) {
@@ -3336,20 +3343,6 @@
         const requirements = String(data.get("requirements") || "").trim();
         const dates = formatDateRange(startDate, endDate);
         const nights = getNightCount(startDate, endDate);
-        const shouldCreateFreshTrip = true;
-        if (shouldCreateFreshTrip) {
-          activeTripTemplate = "custom";
-          activeTripId = createClientTripId("custom");
-          activeShareKey = "";
-          sharedIdeas = [];
-          sharedGeneratedTrip = null;
-          sharedVersions = [];
-          activeVersionId = "";
-          localStorage.setItem(activeTripTemplateStorageKey, activeTripTemplate);
-          localStorage.setItem(activeTripIdStorageKey, activeTripId);
-          localStorage.removeItem(activeShareKeyStorageKey);
-          updateTripUrl();
-        }
         const requestTripId = String(activeTripId || defaultTripId);
         const requestTemplateId = activeTripTemplate;
         const requestTitle = getTripDisplayTitle(requestTemplateId);
