@@ -3328,7 +3328,7 @@
         const requirements = String(data.get("requirements") || "").trim();
         const dates = formatDateRange(startDate, endDate);
         const nights = getNightCount(startDate, endDate);
-        const shouldCreateFreshTrip = activeTripTemplate === "australia" || activeTripId === defaultTripId;
+        const shouldCreateFreshTrip = true;
         if (shouldCreateFreshTrip) {
           activeTripTemplate = "custom";
           activeTripId = createClientTripId("custom");
