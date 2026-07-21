@@ -1615,13 +1615,15 @@
     const activeTripIdStorageKey = "group-trip-active-id-v1";
     const activeShareKeyStorageKey = "group-trip-share-key-v1";
     const urlParams = new URLSearchParams(location.search);
+    const urlTripId = urlParams.get("tripId");
+    const urlShareKey = urlParams.get("key") || urlParams.get("shareKey");
     const defaultTripId = "australia-2026";
     const originalPlaces = JSON.parse(JSON.stringify(places));
     let activeWorkspaceTab = "overview";
     let activeTripTemplate = localStorage.getItem(activeTripTemplateStorageKey) || "australia";
     if (activeTripTemplate === "new") activeTripTemplate = "custom";
-    let activeTripId = urlParams.get("tripId") || localStorage.getItem(activeTripIdStorageKey) || defaultTripId;
-    let activeShareKey = urlParams.get("key") || urlParams.get("shareKey") || localStorage.getItem(activeShareKeyStorageKey) || "";
+    let activeTripId = urlTripId || localStorage.getItem(activeTripIdStorageKey) || defaultTripId;
+    let activeShareKey = urlShareKey || (urlTripId ? "" : localStorage.getItem(activeShareKeyStorageKey) || "");
     let activePlaceId = "perth";
     let sharedIdeas = readLocalIdeas();
     let sharedGeneratedTrip = readLocalGeneratedTrip();
