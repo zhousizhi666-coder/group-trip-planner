@@ -3068,6 +3068,12 @@
         localStorage.setItem(getTripScopedStorageKey(tripConstraintsStorageKey), JSON.stringify(resolvedConstraints));
         state.constraints = resolvedConstraints;
       }
+      if (state.generatedTrip && generatedConstraints) {
+        state.generatedTrip = {
+          ...state.generatedTrip,
+          constraintsFingerprint: getConstraintsFingerprint()
+        };
+      }
       if (Array.isArray(state.budgetRows)) localStorage.setItem(getTripScopedStorageKey(budgetStorageKey), JSON.stringify(state.budgetRows));
       sharedIdeas = Array.isArray(state.ideas) ? state.ideas : [];
       localStorage.setItem(getTripScopedStorageKey(ideaStorageKey), JSON.stringify(sharedIdeas));
