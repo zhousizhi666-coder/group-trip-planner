@@ -679,7 +679,8 @@ async function serveStatic(request, response) {
   try {
     const file = await readFile(filePath);
     response.writeHead(200, {
-      "Content-Type": mimeTypes[ext] || "application/octet-stream"
+      "Content-Type": mimeTypes[ext] || "application/octet-stream",
+      "Cache-Control": ext === ".html" ? "no-store, max-age=0" : "public, max-age=300"
     });
     response.end(file);
   } catch {
