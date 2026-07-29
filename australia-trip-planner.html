@@ -2916,7 +2916,7 @@
       let timeout = null;
       try {
         const controller = new AbortController();
-        timeout = window.setTimeout(() => controller.abort(), 130000);
+        timeout = window.setTimeout(() => controller.abort(), 170000);
         const response = await fetch(getApiEndpoint(), {
           method: "POST",
           signal: controller.signal,

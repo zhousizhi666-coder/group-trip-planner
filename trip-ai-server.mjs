@@ -12,7 +12,9 @@ const host = process.env.HOST || "0.0.0.0";
 const apiKey = process.env.VOLCENGINE_API_KEY || process.env.ARK_API_KEY || "";
 const model = process.env.ARK_MODEL || process.env.VOLCENGINE_MODEL || "ep-m-20260604202245-c2cq2";
 const baseUrl = (process.env.ARK_BASE_URL || "https://ark.cn-beijing.volces.com/api/v3").replace(/\/$/, "");
-const arkTimeoutMs = Number(process.env.ARK_TIMEOUT_MS || 90000);
+const arkTimeoutMs = Number(process.env.ARK_TIMEOUT_MS || 75000);
+const arkMaxAttempts = Math.max(1, Number(process.env.ARK_MAX_ATTEMPTS || 2));
+const arkMaxCompletionTokens = Math.max(4000, Number(process.env.ARK_MAX_COMPLETION_TOKENS || 8000));
 const dataFile = process.env.DATA_FILE || join(__dirname, "trip-state.json");
 const defaultTripId = process.env.DEFAULT_TRIP_ID || "australia-2026";
 const larkOpenApiBase = (process.env.LARK_OPENAPI_BASE_URL || "https://open.larksuite.com/open-apis").replace(/\/$/, "");
@@ -611,6 +613,18 @@ function tryParseJson(text) {
   }
 }
 
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function isRetryableArkStatus(status) {
+  return status === 408 || status === 409 || status === 429 || status >= 500;
+}
+
+function readArkError(data, text, status) {
+  return data?.error?.message || data?.message || text || `HTTP ${status}`;
+}
+
 async function callArk(payload) {
   if (!apiKey) {
     const error = new Error("在线推演服务尚未配置，请联系行程维护者。");
@@ -618,55 +632,95 @@ async function callArk(payload) {
     throw error;
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), arkTimeoutMs);
-  let response;
-  try {
-    response = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      signal: controller.signal,
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model,
-        messages: buildMessages(payload),
-        temperature: 0.35,
-        max_tokens: 4000
-      })
-    });
-  } catch (error) {
-    if (error?.name === "AbortError") {
-      const timeoutError = new Error("模型生成超时，请减少约束内容或稍后重试。");
-      timeoutError.status = 504;
-      throw timeoutError;
+  const messages = buildMessages(payload);
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= arkMaxAttempts; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), arkTimeoutMs);
+    let response;
+
+    try {
+      response = await fetch(`${baseUrl}/chat/completions`, {
+        method: "POST",
+        signal: controller.signal,
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model,
+          messages,
+          temperature: 0.25,
+          thinking: { type: "disabled" },
+          max_completion_tokens: arkMaxCompletionTokens
+        })
+      });
+    } catch (error) {
+      const requestError = error?.name === "AbortError"
+        ? Object.assign(new Error("模型生成超时，请稍后重试。"), { status: 504 })
+        : Object.assign(new Error("模型服务网络异常，请稍后重试。"), { status: 502 });
+      lastError = requestError;
+      console.warn(`[ark] attempt ${attempt}/${arkMaxAttempts} failed: ${requestError.message}`);
+      if (attempt < arkMaxAttempts) {
+        await wait(800 * attempt);
+        continue;
+      }
+      throw requestError;
+    } finally {
+      clearTimeout(timeout);
     }
-    throw error;
-  } finally {
-    clearTimeout(timeout);
+
+    const text = await response.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { raw: text };
+    }
+
+    if (!response.ok) {
+      const upstreamMessage = readArkError(data, text, response.status);
+      const requestError = new Error(
+        isRetryableArkStatus(response.status)
+          ? "模型服务暂时繁忙，请稍后重试。"
+          : upstreamMessage
+      );
+      requestError.status = isRetryableArkStatus(response.status) ? 503 : response.status;
+      lastError = requestError;
+      console.warn(`[ark] attempt ${attempt}/${arkMaxAttempts} returned HTTP ${response.status}`);
+      if (attempt < arkMaxAttempts && isRetryableArkStatus(response.status)) {
+        await wait(800 * attempt);
+        continue;
+      }
+      throw requestError;
+    }
+
+    const choice = data?.choices?.[0] || {};
+    const content = String(choice?.message?.content || data?.output_text || "").trim();
+    const parsed = parsePlanJson(content);
+    if (content && parsed) {
+      return { content, parsed };
+    }
+
+    const finishReason = choice?.finish_reason || "unknown";
+    const requestError = new Error(
+      finishReason === "length"
+        ? "模型输出长度不足，未能生成完整行程，请重试。"
+        : content
+          ? "模型返回的行程格式不完整，请重试。"
+          : "模型返回了空内容，请重试。"
+    );
+    requestError.status = 502;
+    lastError = requestError;
+    console.warn(`[ark] attempt ${attempt}/${arkMaxAttempts} produced unusable output; finish_reason=${finishReason}`);
+    if (attempt < arkMaxAttempts) {
+      await wait(800 * attempt);
+      continue;
+    }
   }
 
-  const text = await response.text();
-  let data;
-  try {
-    data = JSON.parse(text);
-  } catch {
-    data = { raw: text };
-  }
-
-  if (!response.ok) {
-    const message = data?.error?.message || data?.message || text || `HTTP ${response.status}`;
-    const error = new Error(message);
-    error.status = response.status;
-    throw error;
-  }
-
-  const content = data?.choices?.[0]?.message?.content || data?.output_text || "";
-  return {
-    content,
-    parsed: parsePlanJson(content)
-  };
+  throw lastError || Object.assign(new Error("模型服务暂时不可用，请稍后重试。"), { status: 503 });
 }
 
 async function serveStatic(request, response) {
