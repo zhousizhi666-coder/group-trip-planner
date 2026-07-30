@@ -25,10 +25,16 @@ const larkTripsTableId = process.env.LARK_TRIPS_TABLE_ID || "";
 const larkVersionsTableId = process.env.LARK_VERSIONS_TABLE_ID || "tblozOB1lmp93z5S";
 const larkEnabled = Boolean(larkAppId && larkAppSecret && larkBaseToken && larkTripsTableId);
 const larkVersionsEnabled = Boolean(larkEnabled && larkVersionsTableId);
-const storageVersion = "lark-upsert-v3";
+const larkMaxAttempts = Math.max(1, Number(process.env.LARK_MAX_ATTEMPTS || 4));
+const larkCacheTtlMs = Math.max(1000, Number(process.env.LARK_CACHE_TTL_MS || 5000));
+const storageVersion = "lark-upsert-v4";
 const agentPromptTemplate = await loadAgentPrompt(join(__dirname, "agent-prompt.md"));
 let cachedLarkToken = null;
 let cachedLarkTokenExpiresAt = 0;
+const larkTripCache = new Map();
+const larkVersionCache = new Map();
+const larkTripReadsInFlight = new Map();
+const larkVersionReadsInFlight = new Map();
 
 async function loadLocalEnv(filePath) {
   try {
@@ -154,20 +160,63 @@ async function getLarkTenantToken() {
 }
 
 async function larkApi(path, options = {}) {
-  const token = await getLarkTenantToken();
-  const response = await fetch(`${larkOpenApiBase}${path}`, {
-    method: options.method || "GET",
-    headers: {
-      "Content-Type": "application/json; charset=utf-8",
-      Authorization: `Bearer ${token}`
-    },
-    body: options.body ? JSON.stringify(options.body) : undefined
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok || (typeof data.code === "number" && data.code !== 0)) {
-    throw new Error(data.msg || data.message || `飞书 Base 请求失败：HTTP ${response.status}`);
+  const method = options.method || "GET";
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= larkMaxAttempts; attempt += 1) {
+    const token = await getLarkTenantToken();
+    let response;
+    let data;
+    try {
+      response = await fetch(`${larkOpenApiBase}${path}`, {
+        method,
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          Authorization: `Bearer ${token}`
+        },
+        body: options.body ? JSON.stringify(options.body) : undefined
+      });
+      data = await response.json().catch(() => ({}));
+    } catch {
+      const networkError = Object.assign(new Error("飞书存储服务网络异常，请稍后重试。"), { status: 503 });
+      lastError = networkError;
+      if (attempt < larkMaxAttempts && method === "GET") {
+        await wait(500 * (2 ** (attempt - 1)));
+        continue;
+      }
+      throw networkError;
+    }
+
+    const message = String(data?.msg || data?.message || "");
+    const limited = response.status === 429 || /limited|rate.?limit|too many requests/i.test(message);
+    const retryable = limited || (method === "GET" && response.status >= 500);
+    const failed = !response.ok || (typeof data.code === "number" && data.code !== 0);
+    if (!failed) return data;
+
+    const requestError = Object.assign(
+      new Error(
+        limited
+          ? attempt < larkMaxAttempts
+            ? "飞书存储服务请求过于频繁，正在自动重试。"
+            : "飞书存储服务请求过于频繁，请稍后重试。"
+          : message || `飞书 Base 请求失败：HTTP ${response.status}`
+      ),
+      { status: limited || response.status >= 500 ? 503 : response.ok ? 502 : response.status }
+    );
+    lastError = requestError;
+    console.warn(`[lark] ${method} attempt ${attempt}/${larkMaxAttempts} failed: HTTP ${response.status}; ${message || "unknown error"}`);
+    if (attempt < larkMaxAttempts && retryable) {
+      const retryAfterSeconds = Number(response.headers.get("retry-after") || 0);
+      const delayMs = retryAfterSeconds > 0
+        ? retryAfterSeconds * 1000
+        : 700 * (2 ** (attempt - 1));
+      await wait(delayMs);
+      continue;
+    }
+    throw requestError;
   }
-  return data;
+
+  throw lastError || Object.assign(new Error("飞书存储服务暂时不可用，请稍后重试。"), { status: 503 });
 }
 
 const tripFieldAliases = {
@@ -234,6 +283,7 @@ function parseTripFields(fields = {}) {
     title: fieldText(fields, tripFieldAliases.title, String(state?.title || "旅行计划")),
     destination: fieldText(fields, tripFieldAliases.destination, String(state?.basics?.destination || "")),
     dateRange: fieldText(fields, tripFieldAliases.dateRange, String(state?.basics?.dates || "")),
+    updatedAt: fieldText(fields, tripFieldAliases.updatedAt, String(state?.updatedAt || "")),
     state: state || createDefaultTripState(tripId)
   };
 }
@@ -264,37 +314,66 @@ async function listLarkTripRecords() {
 
 async function readLarkTrip(tripId = defaultTripId) {
   if (!larkEnabled) return null;
-  const filter = encodeURIComponent(JSON.stringify({
-    logic: "and",
-    conditions: [["tripId", "==", tripId]]
-  }));
-  const data = await larkApi(`/base/v3/bases/${larkBaseToken}/tables/${larkTripsTableId}/records?field_id=tripId&field_id=shareKey&field_id=title&field_id=destination&field_id=dateRange&field_id=dataJson&field_id=updatedAt&filter=${filter}&limit=20&offset=0`);
-  const records = getLarkRecordItems(data).map(item => {
-    const parsed = parseTripFields(item.fields || {});
-    parsed.recordId = item.record_id || item.recordId || item.id || "";
-    return parsed;
-  });
-  return records
-    .filter(record => record.tripId === tripId)
-    .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))[0] || null;
+  const cacheKey = String(tripId);
+  const cached = larkTripCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  if (larkTripReadsInFlight.has(cacheKey)) return larkTripReadsInFlight.get(cacheKey);
+
+  const request = (async () => {
+    const filter = encodeURIComponent(JSON.stringify({
+      logic: "and",
+      conditions: [["tripId", "==", tripId]]
+    }));
+    const data = await larkApi(`/base/v3/bases/${larkBaseToken}/tables/${larkTripsTableId}/records?field_id=tripId&field_id=shareKey&field_id=title&field_id=destination&field_id=dateRange&field_id=dataJson&field_id=updatedAt&filter=${filter}&limit=20&offset=0`);
+    const records = getLarkRecordItems(data).map(item => {
+      const parsed = parseTripFields(item.fields || {});
+      parsed.recordId = item.record_id || item.recordId || item.id || "";
+      return parsed;
+    });
+    const value = records
+      .filter(record => record.tripId === tripId)
+      .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))[0] || null;
+    larkTripCache.set(cacheKey, { value, expiresAt: Date.now() + larkCacheTtlMs });
+    return value;
+  })();
+  larkTripReadsInFlight.set(cacheKey, request);
+  try {
+    return await request;
+  } finally {
+    larkTripReadsInFlight.delete(cacheKey);
+  }
 }
 
 async function listLarkVersionRecords(tripId = defaultTripId) {
   if (!larkVersionsEnabled) return [];
-  const filter = encodeURIComponent(JSON.stringify({
-    logic: "and",
-    conditions: [["tripId", "==", tripId]]
-  }));
-  const data = await larkApi(`/base/v3/bases/${larkBaseToken}/tables/${larkVersionsTableId}/records?field_id=versionId&field_id=tripId&field_id=title&field_id=summary&field_id=createdAt&field_id=dataJson&filter=${filter}&limit=200&offset=0`);
-  const items = getLarkRecordItems(data);
-  return items
-    .map(item => {
-      const parsed = parseVersionFields(item.fields || {});
-      parsed.recordId = item.record_id || item.recordId || item.id || "";
-      return parsed;
-    })
-    .filter(version => version.tripId === tripId && version.id)
-    .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+  const cacheKey = String(tripId);
+  const cached = larkVersionCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  if (larkVersionReadsInFlight.has(cacheKey)) return larkVersionReadsInFlight.get(cacheKey);
+
+  const request = (async () => {
+    const filter = encodeURIComponent(JSON.stringify({
+      logic: "and",
+      conditions: [["tripId", "==", tripId]]
+    }));
+    const data = await larkApi(`/base/v3/bases/${larkBaseToken}/tables/${larkVersionsTableId}/records?field_id=versionId&field_id=tripId&field_id=title&field_id=summary&field_id=createdAt&field_id=dataJson&filter=${filter}&limit=200&offset=0`);
+    const value = getLarkRecordItems(data)
+      .map(item => {
+        const parsed = parseVersionFields(item.fields || {});
+        parsed.recordId = item.record_id || item.recordId || item.id || "";
+        return parsed;
+      })
+      .filter(version => version.tripId === tripId && version.id)
+      .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+    larkVersionCache.set(cacheKey, { value, expiresAt: Date.now() + larkCacheTtlMs });
+    return value;
+  })();
+  larkVersionReadsInFlight.set(cacheKey, request);
+  try {
+    return await request;
+  } finally {
+    larkVersionReadsInFlight.delete(cacheKey);
+  }
 }
 
 function getLarkRecordItems(data = {}) {
@@ -359,7 +438,7 @@ async function writeLarkTrip(rawState, tripId = defaultTripId, shareKey = "") {
   const preservedShareKey = String(rawState?.shareKey || shareKey || existing?.shareKey || createShareKey());
   const state = normalizeTripState(rawState, rawTripId, preservedShareKey);
   if (larkVersionsEnabled && Array.isArray(state.versions) && state.versions.length) {
-    await Promise.all(state.versions.slice(0, 20).map(version => writeLarkVersion(version, state.tripId)));
+    await syncLarkVersions(state.versions, state.tripId);
   }
   const stateForTrip = {
     ...state,
@@ -377,33 +456,65 @@ async function writeLarkTrip(rawState, tripId = defaultTripId, shareKey = "") {
   const path = existing?.recordId
     ? `/base/v3/bases/${larkBaseToken}/tables/${larkTripsTableId}/records/${existing.recordId}`
     : `/base/v3/bases/${larkBaseToken}/tables/${larkTripsTableId}/records`;
-  await larkApi(path, {
+  const result = await larkApi(path, {
     method: existing?.recordId ? "PATCH" : "POST",
     body: fields
+  });
+  const recordId = existing?.recordId
+    || result?.data?.record_id
+    || result?.data?.record?.record_id
+    || result?.record_id
+    || "";
+  larkTripCache.set(rawTripId, {
+    value: {
+      tripId: state.tripId,
+      shareKey: state.shareKey,
+      recordId,
+      title: state.title,
+      destination: String(state.basics?.destination || ""),
+      dateRange: String(state.basics?.dates || ""),
+      updatedAt: state.updatedAt,
+      state: stateForTrip
+    },
+    expiresAt: Date.now() + larkCacheTtlMs
   });
   return state;
 }
 
-async function writeLarkVersion(version, tripId = defaultTripId) {
-  if (!larkVersionsEnabled || !version?.id) return null;
+async function syncLarkVersions(versions, tripId = defaultTripId) {
+  if (!larkVersionsEnabled) return [];
   const records = await listLarkVersionRecords(tripId);
-  const existing = records.find(item => item.id === version.id);
-  const fields = {
-    versionId: String(version.id),
-    tripId: String(tripId),
-    title: String(version.title || ""),
-    summary: String(version.summary || ""),
-    createdAt: String(version.createdAt || new Date().toISOString()),
-    dataJson: JSON.stringify({ ...version, tripId })
-  };
-  const path = existing?.recordId
-    ? `/base/v3/bases/${larkBaseToken}/tables/${larkVersionsTableId}/records/${existing.recordId}`
-    : `/base/v3/bases/${larkBaseToken}/tables/${larkVersionsTableId}/records`;
-  await larkApi(path, {
-    method: existing?.recordId ? "PATCH" : "POST",
-    body: fields
-  });
-  return { ...version, tripId };
+  const existingIds = new Set(records.map(item => item.id));
+  const nextRecords = [...records];
+
+  for (const version of versions.slice(0, 20)) {
+    if (!version?.id || existingIds.has(version.id)) continue;
+    const fields = {
+      versionId: String(version.id),
+      tripId: String(tripId),
+      title: String(version.title || ""),
+      summary: String(version.summary || ""),
+      createdAt: String(version.createdAt || new Date().toISOString()),
+      dataJson: JSON.stringify({ ...version, tripId })
+    };
+    const result = await larkApi(`/base/v3/bases/${larkBaseToken}/tables/${larkVersionsTableId}/records`, {
+      method: "POST",
+      body: fields
+    });
+    nextRecords.push({
+      ...version,
+      tripId,
+      recordId: result?.data?.record_id || result?.data?.record?.record_id || result?.record_id || ""
+    });
+    existingIds.add(version.id);
+    await wait(120);
+  }
+
+  const value = nextRecords
+    .filter(version => version.tripId === tripId && version.id)
+    .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+  larkVersionCache.set(String(tripId), { value, expiresAt: Date.now() + larkCacheTtlMs });
+  return value;
 }
 
 async function readTripState(tripId = defaultTripId, shareKey = "") {
@@ -991,10 +1102,21 @@ const server = createServer(async (request, response) => {
   await serveStatic(request, response);
 });
 
-server.listen(port, host, () => {
-  console.log(`Trip planner server: http://${host}:${port}`);
-  console.log(`Model: ${model}`);
-  console.log(`Ark base URL: ${baseUrl}`);
-  console.log(`API key loaded: ${apiKey ? "yes" : "no"}`);
-  console.log(`Data file: ${dataFile}`);
-});
+if (process.env.TRIP_SERVER_DISABLE_LISTEN !== "1") {
+  server.listen(port, host, () => {
+    console.log(`Trip planner server: http://${host}:${port}`);
+    console.log(`Model: ${model}`);
+    console.log(`Ark base URL: ${baseUrl}`);
+    console.log(`API key loaded: ${apiKey ? "yes" : "no"}`);
+    console.log(`Data file: ${dataFile}`);
+  });
+}
+
+export {
+  larkApi,
+  listLarkVersionRecords,
+  readLarkTrip,
+  readTripState,
+  syncLarkVersions,
+  writeLarkTrip
+};
