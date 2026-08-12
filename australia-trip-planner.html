@@ -1410,25 +1410,25 @@
           <span>可复用模板</span>
         </div>
         <button class="trip-card active" type="button" data-trip-template="australia">
-          <strong>澳洲 10 晚示例</strong>
+          <strong data-trip-card-title>澳洲 10 晚示例</strong>
           <span id="australiaTripRouteLabel">珀斯 / 墨尔本 / 圣灵群岛 / 悉尼</span>
           <span class="trip-card-meta"><small>国家旅行</small><small>10 晚</small><small>多人共创</small></span>
           <span class="trip-generation-status" data-trip-generation-status><span class="mini-spinner"></span>生成中</span>
         </button>
         <button class="trip-card" type="button" data-trip-template="custom">
-          <strong>新建一段旅行</strong>
+          <strong data-trip-card-title>新建一段旅行</strong>
           <span>从目的地、时间、预算和必去点开始</span>
           <span class="trip-card-meta"><small>空白</small><small>可生成初版</small></span>
           <span class="trip-generation-status" data-trip-generation-status><span class="mini-spinner"></span>生成中</span>
         </button>
         <button class="trip-card" type="button" data-trip-template="city">
-          <strong>城市短途模板</strong>
+          <strong data-trip-card-title>城市短途模板</strong>
           <span>适合 2-4 晚城市深度游</span>
           <span class="trip-card-meta"><small>城市</small><small>低换宿</small></span>
           <span class="trip-generation-status" data-trip-generation-status><span class="mini-spinner"></span>生成中</span>
         </button>
         <button class="trip-card" type="button" data-trip-template="island">
-          <strong>海岛度假模板</strong>
+          <strong data-trip-card-title>海岛度假模板</strong>
           <span>适合酒店、出海、休息日取舍</span>
           <span class="trip-card-meta"><small>度假</small><small>预算弹性</small></span>
           <span class="trip-generation-status" data-trip-generation-status><span class="mini-spinner"></span>生成中</span>
@@ -1610,6 +1610,7 @@
     const initialVersionId = "initial";
     const budgetStorageKey = "australia-trip-budget-v1";
     const tripBasicsStorageKey = "group-trip-basics-v1";
+    const tripCardTitlesStorageKey = "group-trip-card-titles-v1";
     const tripConstraintsStorageKey = "group-trip-hard-constraints-v1";
     const activeTripTemplateStorageKey = "group-trip-active-template-v1";
     const activeTripIdStorageKey = "group-trip-active-id-v1";
@@ -1658,6 +1659,7 @@
     ];
     const tripTemplates = {
       australia: {
+        tripName: "澳洲 10 晚示例",
         destination: "澳大利亚",
         scope: "国家旅行",
         dates: "2026-09-26 - 2026-10-06",
@@ -1669,6 +1671,7 @@
         requirements: "三人同行，其中一对情侣；住宿尽量两间真实卧室；粉红湖、圣灵群岛和动物体验优先保留。"
       },
       custom: {
+        tripName: "",
         destination: "",
         scope: "",
         dates: "",
@@ -1680,6 +1683,7 @@
         requirements: ""
       },
       city: {
+        tripName: "",
         destination: "",
         scope: "",
         dates: "",
@@ -1691,6 +1695,7 @@
         requirements: ""
       },
       island: {
+        tripName: "",
         destination: "",
         scope: "",
         dates: "",
@@ -1782,9 +1787,42 @@
 
     function getTripDisplayTitle(templateId = activeTripTemplate) {
       const basics = getTripBasics();
+      if (basics.tripName) return String(basics.tripName).trim();
       if (basics.destination) return `${basics.destination} ${basics.dates || ""}`.trim();
       const activeCard = document.querySelector(`[data-trip-template="${templateId}"] strong`);
       return activeCard?.textContent?.trim() || "这段旅行";
+    }
+
+    function readTripCardTitles() {
+      try {
+        return JSON.parse(localStorage.getItem(tripCardTitlesStorageKey) || "{}") || {};
+      } catch {
+        return {};
+      }
+    }
+
+    function rememberTripCardTitle(templateId, title) {
+      const normalizedTitle = String(title || "").trim();
+      if (!templateId || !normalizedTitle) return;
+      const titles = readTripCardTitles();
+      titles[templateId] = normalizedTitle;
+      localStorage.setItem(tripCardTitlesStorageKey, JSON.stringify(titles));
+    }
+
+    function getTripCardTitle(templateId) {
+      const defaults = {
+        australia: "澳洲 10 晚示例",
+        custom: "新建一段旅行",
+        city: "城市短途模板",
+        island: "海岛度假模板"
+      };
+      const remembered = readTripCardTitles()[templateId];
+      if (templateId === activeTripTemplate) {
+        const basics = getTripBasics();
+        const activeTitle = String(basics.tripName || "").trim();
+        if (activeTitle) return activeTitle;
+      }
+      return remembered || defaults[templateId] || "旅行计划";
     }
 
     function getGenerationKey(tripId = activeTripId || defaultTripId, templateId = activeTripTemplate) {
@@ -2020,6 +2058,8 @@
 
     function saveTripBasics(basics) {
       localStorage.setItem(getTripScopedStorageKey(tripBasicsStorageKey), JSON.stringify(basics));
+      if (basics?.tripName) rememberTripCardTitle(activeTripTemplate, basics.tripName);
+      renderTripSwitcherCards();
       queueTripCloudSave();
     }
 
@@ -2503,6 +2543,10 @@
     }
 
     function renderTripSwitcherCards() {
+      document.querySelectorAll("[data-trip-template]").forEach(button => {
+        const title = button.querySelector("[data-trip-card-title]");
+        if (title) title.textContent = getTripCardTitle(button.dataset.tripTemplate);
+      });
       if (australiaTripRouteLabelEl && activeTripTemplate === "australia") {
         const routeLabel = getRouteOrderedPlaces()
           .map(place => String(place?.name || "").trim())
@@ -3025,7 +3069,8 @@
       return {
         tripId: activeTripId || defaultTripId,
         shareKey: activeShareKey,
-        title: basics.destination ? `${basics.destination} ${basics.dates || ""}`.trim() : "旅行计划",
+        title: String(basics.tripName || "").trim()
+          || (basics.destination ? `${basics.destination} ${basics.dates || ""}`.trim() : "旅行计划"),
         activeTripTemplate,
         activePlaceId,
         activeWorkspaceTab,
@@ -3061,7 +3106,15 @@
       localStorage.setItem(activeTripTemplateStorageKey, activeTripTemplate);
       localStorage.setItem(activeTripIdStorageKey, activeTripId);
       if (activeShareKey) localStorage.setItem(activeShareKeyStorageKey, activeShareKey);
-      if (state.basics) localStorage.setItem(getTripScopedStorageKey(tripBasicsStorageKey), JSON.stringify(state.basics));
+      if (state.basics) {
+        const cloudBasics = {
+          ...state.basics,
+          tripName: String(state.basics.tripName || state.title || "").trim()
+        };
+        localStorage.setItem(getTripScopedStorageKey(tripBasicsStorageKey), JSON.stringify(cloudBasics));
+        if (cloudBasics.tripName) rememberTripCardTitle(activeTripTemplate, cloudBasics.tripName);
+        state.basics = cloudBasics;
+      }
       const generatedConstraints = readGeneratedTripConstraints(state.generatedTrip);
       const resolvedConstraints = generatedConstraints || state.constraints;
       if (resolvedConstraints) {
@@ -3335,6 +3388,15 @@
             <h4>快速创建行程</h4>
             <form class="trip-form" id="tripBasicsForm">
               <div class="field-grid">
+                <label>行程名称
+                  <input name="tripName" value="${escapeHTML(basics.tripName || "")}" placeholder="例如：澳洲国庆 10 日游 / 北京周末露营" maxlength="40" />
+                </label>
+              </div>
+              <div class="button-row">
+                <button class="action-btn secondary" type="button" id="saveTripName">保存名称</button>
+                <span class="tagline" id="tripNameStatus">保存后会同步更新左侧标题。</span>
+              </div>
+              <div class="field-grid">
                 <label>目的地
                   <input name="destination" value="${escapeHTML(basics.destination)}" placeholder="例如：澳大利亚 / 日本 / 上海 / 云南" />
                 </label>
@@ -3448,6 +3510,7 @@
         const quickGenerateOutput = document.getElementById("quickGenerateOutput");
 
         const data = new FormData(event.currentTarget);
+        const tripName = String(data.get("tripName") || "").trim();
         const destination = String(data.get("destination") || "").trim();
         const startDate = String(data.get("startDate") || "").trim();
         const endDate = String(data.get("endDate") || "").trim();
@@ -3471,6 +3534,7 @@
         await waitForNextPaint();
 
         const basicsPayload = {
+          tripName,
           destination,
           scope: "自动判断",
           dates,
@@ -3535,6 +3599,25 @@
           endTripGeneration(requestTripId, requestTemplateId);
           if (quickGenerateButton) quickGenerateButton.disabled = false;
         });
+      });
+
+      document.getElementById("saveTripName")?.addEventListener("click", async () => {
+        const form = document.getElementById("tripBasicsForm");
+        const input = form?.elements?.tripName;
+        const status = document.getElementById("tripNameStatus");
+        const tripName = String(input?.value || "").trim();
+        if (!tripName) {
+          if (status) status.textContent = "请先输入一个行程名称。";
+          input?.focus();
+          return;
+        }
+        saveTripBasics({ ...getTripBasics(), tripName });
+        if (status) status.textContent = "名称已保存，左侧标题已更新。";
+        try {
+          await saveTripToCloudNow();
+        } catch {
+          if (status) status.textContent = "名称已保存在本机，云端同步稍后自动重试。";
+        }
       });
 
       document.getElementById("tripConstraintsForm")?.addEventListener("submit", event => {
