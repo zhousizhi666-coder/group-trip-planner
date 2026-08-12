@@ -1406,31 +1406,14 @@
 
       <div class="trip-switcher">
         <div class="switcher-title">
-          <span>旅程模块</span>
-          <span>可复用模板</span>
+          <span>我的行程</span>
+          <span id="savedTripCount">正在读取</span>
         </div>
-        <button class="trip-card active" type="button" data-trip-template="australia">
-          <strong data-trip-card-title>澳洲 10 晚示例</strong>
-          <span id="australiaTripRouteLabel">珀斯 / 墨尔本 / 圣灵群岛 / 悉尼</span>
-          <span class="trip-card-meta"><small>国家旅行</small><small>10 晚</small><small>多人共创</small></span>
-          <span class="trip-generation-status" data-trip-generation-status><span class="mini-spinner"></span>生成中</span>
-        </button>
-        <button class="trip-card" type="button" data-trip-template="custom">
-          <strong data-trip-card-title>新建一段旅行</strong>
-          <span>从目的地、时间、预算和必去点开始</span>
+        <div id="savedTripCards"></div>
+        <button class="trip-card" type="button" data-new-trip="custom">
+          <strong>新建一段旅行</strong>
+          <span>从目的地、时间和基础诉求开始</span>
           <span class="trip-card-meta"><small>空白</small><small>可生成初版</small></span>
-          <span class="trip-generation-status" data-trip-generation-status><span class="mini-spinner"></span>生成中</span>
-        </button>
-        <button class="trip-card" type="button" data-trip-template="city">
-          <strong data-trip-card-title>城市短途模板</strong>
-          <span>适合 2-4 晚城市深度游</span>
-          <span class="trip-card-meta"><small>城市</small><small>低换宿</small></span>
-          <span class="trip-generation-status" data-trip-generation-status><span class="mini-spinner"></span>生成中</span>
-        </button>
-        <button class="trip-card" type="button" data-trip-template="island">
-          <strong data-trip-card-title>海岛度假模板</strong>
-          <span>适合酒店、出海、休息日取舍</span>
-          <span class="trip-card-meta"><small>度假</small><small>预算弹性</small></span>
           <span class="trip-generation-status" data-trip-generation-status><span class="mini-spinner"></span>生成中</span>
         </button>
       </div>
@@ -1600,7 +1583,8 @@
     const detail = document.getElementById("detail");
     const workspaceTabsEl = document.getElementById("workspaceTabs");
     const workspaceBodyEl = document.getElementById("workspaceBody");
-    const australiaTripRouteLabelEl = document.getElementById("australiaTripRouteLabel");
+    const savedTripCardsEl = document.getElementById("savedTripCards");
+    const savedTripCountEl = document.getElementById("savedTripCount");
     const tripGenerationOverlayEl = document.getElementById("tripGenerationOverlay");
     const tripGenerationTitleEl = document.getElementById("tripGenerationTitle");
     const ideaStorageKey = "australia-trip-ideas-v1";
@@ -1632,6 +1616,7 @@
     let activeVersionId = localStorage.getItem(getTripScopedStorageKey(activeVersionIdStorageKey)) || "";
     let isHydratingTripState = false;
     let cloudSaveTimer = null;
+    let savedTripSummaries = [];
     const generatingTrips = new Map();
     const workspaceTabs = [
       { id: "create", label: "创建行程" },
@@ -1847,12 +1832,12 @@
       if (tripGenerationTitleEl && currentGeneration) {
         tripGenerationTitleEl.textContent = currentGeneration.overlayTitle || `${currentGeneration.title || "当前行程"}${currentGeneration.statusLabel || "生成中"}`;
       }
-      document.querySelectorAll("[data-trip-template]").forEach(button => {
-        const generation = getGeneratingTripForTemplate(button.dataset.tripTemplate);
+      document.querySelectorAll("[data-saved-trip-id]").forEach(button => {
+        const generation = [...generatingTrips.values()].find(item => item.tripId === button.dataset.savedTripId);
         button.classList.toggle("is-generating", Boolean(generation));
         const status = button.querySelector("[data-trip-generation-status]");
         if (status && generation) {
-          status.innerHTML = `<span class="mini-spinner"></span>${escapeHTML(generation.title || "行程")}${escapeHTML(generation.statusLabel || "生成中")}`;
+          status.innerHTML = `<span class="mini-spinner"></span>${escapeHTML(generation.statusLabel || "生成中")}`;
         }
       });
     }
@@ -2300,7 +2285,7 @@
         localStorage.setItem(activeTripIdStorageKey, activeTripId);
         localStorage.removeItem(activeShareKeyStorageKey);
         updateTripUrl();
-      } else if (activeTripId === defaultTripId) {
+      } else {
         activeTripId = createClientTripId(activeTripTemplate);
         activeShareKey = "";
         localStorage.setItem(activeTripIdStorageKey, activeTripId);
@@ -2319,9 +2304,6 @@
       sharedVersions = readLocalVersions();
       activeVersionId = localStorage.getItem(scopedStorageKey(activeVersionIdStorageKey)) || "";
       activePlaceId = getTripPlaceIds()[0] || "";
-      document.querySelectorAll("[data-trip-template]").forEach(button => {
-        button.classList.toggle("active", button.dataset.tripTemplate === activeTripTemplate);
-      });
       renderTripSwitcherCards();
       renderWorkspaceTab(activeTripTemplate === "australia" ? "overview" : "create");
       renderActiveDetail();
@@ -2329,10 +2311,35 @@
       refreshGenerationUi();
     }
 
+    async function openSavedTrip(tripId) {
+      const nextTripId = String(tripId || "").trim();
+      if (!nextTripId || nextTripId === activeTripId) return;
+      window.clearTimeout(cloudSaveTimer);
+      isHydratingTripState = true;
+      activeTripId = nextTripId;
+      activeShareKey = "";
+      updateTripUrl();
+      renderTripSwitcherCards();
+      try {
+        const state = await fetchJson(`/api/state?tripId=${encodeURIComponent(nextTripId)}`);
+        applyTripCloudState(state);
+        renderWorkspaceTab(state.activeWorkspaceTab || "overview");
+        renderActiveDetail();
+        renderTripSwitcherCards();
+      } catch (error) {
+        isHydratingTripState = false;
+        alert(error.message || "读取行程失败");
+      }
+      refreshGenerationUi();
+    }
+
     function bindTripSwitcher() {
-      document.querySelectorAll("[data-trip-template]").forEach(button => {
-        button.classList.toggle("active", button.dataset.tripTemplate === activeTripTemplate);
-        button.addEventListener("click", () => setActiveTripTemplate(button.dataset.tripTemplate));
+      document.querySelectorAll("[data-new-trip]").forEach(button => {
+        button.addEventListener("click", () => setActiveTripTemplate(button.dataset.newTrip));
+      });
+      savedTripCardsEl?.addEventListener("click", event => {
+        const button = event.target.closest("[data-saved-trip-id]");
+        if (button) openSavedTrip(button.dataset.savedTripId);
       });
       renderTripSwitcherCards();
     }
@@ -2543,18 +2550,63 @@
     }
 
     function renderTripSwitcherCards() {
-      document.querySelectorAll("[data-trip-template]").forEach(button => {
-        const title = button.querySelector("[data-trip-card-title]");
-        if (title) title.textContent = getTripCardTitle(button.dataset.tripTemplate);
-      });
-      if (australiaTripRouteLabelEl && activeTripTemplate === "australia") {
-        const routeLabel = getRouteOrderedPlaces()
-          .map(place => String(place?.name || "").trim())
-          .filter(Boolean)
-          .join(" / ");
-        australiaTripRouteLabelEl.textContent = routeLabel || "珀斯 / 墨尔本 / 圣灵群岛 / 悉尼";
+      if (savedTripCardsEl) {
+        savedTripCardsEl.innerHTML = savedTripSummaries.map(trip => {
+          const route = Array.isArray(trip.route) && trip.route.length
+            ? trip.route.join(" / ")
+            : trip.destination || "待补充目的地";
+          const metadata = [trip.dateRange, trip.nights ? `${trip.nights} 晚` : ""]
+            .filter(Boolean);
+          const generation = [...generatingTrips.values()].find(item => item.tripId === trip.tripId);
+          return `
+            <button class="trip-card ${trip.tripId === activeTripId ? "active" : ""} ${generation ? "is-generating" : ""}" type="button" data-saved-trip-id="${escapeHTML(trip.tripId)}">
+              <strong>${escapeHTML(trip.title || trip.destination || "旅行计划")}</strong>
+              <span>${escapeHTML(route)}</span>
+              <span class="trip-card-meta">${metadata.map(item => `<small>${escapeHTML(item)}</small>`).join("")}</span>
+              <span class="trip-generation-status" data-trip-generation-status><span class="mini-spinner"></span>${escapeHTML(generation?.statusLabel || "生成中")}</span>
+            </button>
+          `;
+        }).join("");
       }
+      if (savedTripCountEl) savedTripCountEl.textContent = `${savedTripSummaries.length} 个`;
       refreshGenerationUi();
+    }
+
+    async function loadSavedTrips() {
+      try {
+        const data = await fetchJson("/api/trips");
+        savedTripSummaries = Array.isArray(data?.trips) ? data.trips : [];
+      } catch {
+        savedTripSummaries = [];
+      }
+      renderTripSwitcherCards();
+    }
+
+    function upsertSavedTripSummary(state) {
+      if (!state?.tripId) return;
+      const constraints = state.constraints && typeof state.constraints === "object" ? state.constraints : {};
+      const destinations = Array.isArray(constraints.destinations) ? constraints.destinations : [];
+      const byId = new Map(destinations.map(item => [String(item?.id || ""), item]));
+      const route = constraints.orderMode === "fixed" && Array.isArray(constraints.order) && constraints.order.length
+        ? constraints.order.map(id => byId.get(String(id))).filter(Boolean)
+        : destinations;
+      const summary = {
+        tripId: String(state.tripId),
+        title: String(state.title || state.basics?.tripName || state.basics?.destination || "旅行计划"),
+        destination: String(state.basics?.destination || ""),
+        dateRange: String(state.basics?.dates || ""),
+        updatedAt: String(state.updatedAt || new Date().toISOString()),
+        templateId: String(state.activeTripTemplate || "custom").replace(/^new$/, "custom"),
+        route: route.map(item => String(item?.name || "").trim()).filter(Boolean),
+        nights: destinations.reduce((total, item) => {
+          const match = String(item?.nights || "").match(/\d+/);
+          return total + (match ? Number(match[0]) : 0);
+        }, 0),
+        hasGeneratedTrip: Boolean(state.generatedTrip)
+      };
+      savedTripSummaries = [summary, ...savedTripSummaries.filter(item => item.tripId !== summary.tripId)]
+        .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
+      renderTripSwitcherCards();
     }
 
     function normalizePlace(candidate, fallback) {
@@ -3161,6 +3213,7 @@
       if (data?.tripId) activeTripId = data.tripId;
       if (data?.shareKey) activeShareKey = data.shareKey;
       updateTripUrl();
+      upsertSavedTripSummary(data || state);
       return data;
     }
 
@@ -4509,6 +4562,7 @@
 
     bootstrapGeneratedTrip();
     bindTripSwitcher();
+    loadSavedTrips();
     document.getElementById("shareTripLink")?.addEventListener("click", copyTripShareLink);
     renderWorkspaceTab(activeTripTemplate === "australia" ? "overview" : "create");
     renderActiveDetail();

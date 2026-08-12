@@ -35,6 +35,8 @@ const larkTripCache = new Map();
 const larkVersionCache = new Map();
 const larkTripReadsInFlight = new Map();
 const larkVersionReadsInFlight = new Map();
+let larkTripListCache = { value: [], expiresAt: 0 };
+let larkTripListInFlight = null;
 
 async function loadLocalEnv(filePath) {
   try {
@@ -303,13 +305,81 @@ function parseVersionFields(fields = {}) {
 
 async function listLarkTripRecords() {
   if (!larkEnabled) return [];
-  const data = await larkApi(`/base/v3/bases/${larkBaseToken}/tables/${larkTripsTableId}/records?limit=200&offset=0`);
-  const items = getLarkRecordItems(data);
-  return items.map(item => {
-    const parsed = parseTripFields(item.fields || {});
-    parsed.recordId = item.record_id || item.recordId || item.id || "";
-    return parsed;
-  });
+  if (larkTripListCache.expiresAt > Date.now()) return larkTripListCache.value;
+  if (larkTripListInFlight) return larkTripListInFlight;
+
+  larkTripListInFlight = (async () => {
+    const data = await larkApi(`/base/v3/bases/${larkBaseToken}/tables/${larkTripsTableId}/records?limit=200&offset=0`);
+    const items = getLarkRecordItems(data);
+    const value = items.map(item => {
+      const parsed = parseTripFields(item.fields || {});
+      parsed.recordId = item.record_id || item.recordId || item.id || "";
+      return parsed;
+    });
+    larkTripListCache = { value, expiresAt: Date.now() + Math.max(larkCacheTtlMs, 15000) };
+    return value;
+  })();
+
+  try {
+    return await larkTripListInFlight;
+  } finally {
+    larkTripListInFlight = null;
+  }
+}
+
+function summarizeTripRecord(record) {
+  const state = record?.state && typeof record.state === "object" ? record.state : {};
+  const constraints = state.constraints && typeof state.constraints === "object" ? state.constraints : {};
+  const destinations = Array.isArray(constraints.destinations) ? constraints.destinations : [];
+  const order = Array.isArray(constraints.order) ? constraints.order : [];
+  const byId = new Map(destinations.map(item => [String(item?.id || ""), item]));
+  const orderedDestinations = constraints.orderMode === "fixed" && order.length
+    ? order.map(id => byId.get(String(id))).filter(Boolean)
+    : destinations;
+  const route = orderedDestinations
+    .map(item => String(item?.name || "").trim())
+    .filter(Boolean);
+  const nights = destinations.reduce((total, item) => {
+    const match = String(item?.nights || "").match(/\d+/);
+    return total + (match ? Number(match[0]) : 0);
+  }, 0);
+  return {
+    tripId: String(record?.tripId || state.tripId || ""),
+    title: String(record?.title || state.title || state.basics?.tripName || "旅行计划"),
+    destination: String(record?.destination || state.basics?.destination || ""),
+    dateRange: String(record?.dateRange || state.basics?.dates || ""),
+    updatedAt: String(record?.updatedAt || state.updatedAt || ""),
+    templateId: String(state.activeTripTemplate || state.generatedTrip?.templateId || "custom").replace(/^new$/, "custom"),
+    route,
+    nights,
+    hasGeneratedTrip: Boolean(state.generatedTrip)
+  };
+}
+
+async function listTripSummaries() {
+  if (!larkEnabled) {
+    const state = { ...createDefaultTripState(defaultTripId), ...(await readState()) };
+    return [summarizeTripRecord({ tripId: defaultTripId, state })];
+  }
+  const latestByTripId = new Map();
+  for (const record of await listLarkTripRecords()) {
+    const tripId = String(record?.tripId || "").trim();
+    if (!tripId || /^(?:debug-|trip-debug-|storage-smoke-)/.test(tripId)) continue;
+    const summary = summarizeTripRecord(record);
+    const meaningful = Boolean(
+      summary.destination
+      || summary.dateRange
+      || summary.route.length
+      || summary.hasGeneratedTrip
+    );
+    if (!meaningful) continue;
+    const previous = latestByTripId.get(tripId);
+    if (!previous || summary.updatedAt.localeCompare(previous.updatedAt) > 0) {
+      latestByTripId.set(tripId, summary);
+    }
+  }
+  return [...latestByTripId.values()]
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
 async function readLarkTrip(tripId = defaultTripId) {
@@ -478,6 +548,7 @@ async function writeLarkTrip(rawState, tripId = defaultTripId, shareKey = "") {
     },
     expiresAt: Date.now() + larkCacheTtlMs
   });
+  larkTripListCache = { value: [], expiresAt: 0 };
   return state;
 }
 
@@ -888,6 +959,15 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  if (url.pathname === "/api/trips" && request.method === "GET") {
+    try {
+      sendJson(response, 200, { trips: await listTripSummaries() });
+    } catch (error) {
+      sendJson(response, error.status || 500, { error: error.message || "读取行程列表失败" });
+    }
+    return;
+  }
+
   if (url.pathname === "/api/trip" && request.method === "GET") {
     try {
       const tripId = getRequestTripId(url);
@@ -1114,6 +1194,8 @@ if (process.env.TRIP_SERVER_DISABLE_LISTEN !== "1") {
 
 export {
   larkApi,
+  listLarkTripRecords,
+  listTripSummaries,
   listLarkVersionRecords,
   readLarkTrip,
   readTripState,
