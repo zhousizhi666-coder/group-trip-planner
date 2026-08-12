@@ -382,6 +382,55 @@ async function listTripSummaries() {
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
+async function deleteLarkTrip(tripId) {
+  const normalizedTripId = String(tripId || "").trim();
+  if (!normalizedTripId) {
+    throw Object.assign(new Error("缺少要删除的 tripId"), { status: 400 });
+  }
+  if (!larkEnabled) {
+    throw Object.assign(new Error("云端行程存储未启用"), { status: 503 });
+  }
+
+  const tripRecords = (await listLarkTripRecords())
+    .filter(record => record.tripId === normalizedTripId && record.recordId);
+  let versionRecords = [];
+  if (larkVersionsEnabled) {
+    const filter = encodeURIComponent(JSON.stringify({
+      logic: "and",
+      conditions: [["tripId", "==", normalizedTripId]]
+    }));
+    const data = await larkApi(`/base/v3/bases/${larkBaseToken}/tables/${larkVersionsTableId}/records?field_id=tripId&filter=${filter}&limit=200&offset=0`);
+    versionRecords = getLarkRecordItems(data)
+      .map(item => ({
+        tripId: fieldText(item.fields || {}, versionFieldAliases.tripId, ""),
+        recordId: item.record_id || item.recordId || item.id || ""
+      }))
+      .filter(record => record.tripId === normalizedTripId && record.recordId);
+  }
+
+  for (const record of versionRecords) {
+    await larkApi(`/base/v3/bases/${larkBaseToken}/tables/${larkVersionsTableId}/records/${record.recordId}`, {
+      method: "DELETE"
+    });
+    await wait(80);
+  }
+  for (const record of tripRecords) {
+    await larkApi(`/base/v3/bases/${larkBaseToken}/tables/${larkTripsTableId}/records/${record.recordId}`, {
+      method: "DELETE"
+    });
+    await wait(80);
+  }
+
+  larkTripCache.delete(normalizedTripId);
+  larkVersionCache.delete(normalizedTripId);
+  larkTripListCache = { value: [], expiresAt: 0 };
+  return {
+    tripId: normalizedTripId,
+    deletedTripRecords: tripRecords.length,
+    deletedVersionRecords: versionRecords.length
+  };
+}
+
 async function readLarkTrip(tripId = defaultTripId) {
   if (!larkEnabled) return null;
   const cacheKey = String(tripId);
@@ -1003,6 +1052,17 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  if (url.pathname === "/api/trip" && request.method === "DELETE") {
+    try {
+      const tripId = getRequestTripId(url);
+      const result = await deleteLarkTrip(tripId);
+      sendJson(response, 200, { ok: true, ...result });
+    } catch (error) {
+      sendJson(response, error.status || 500, { error: error.message || "删除行程失败" });
+    }
+    return;
+  }
+
   if (url.pathname === "/api/ideas" && request.method === "GET") {
     const tripId = getRequestTripId(url);
     const shareKey = getRequestShareKey(url);
@@ -1193,6 +1253,7 @@ if (process.env.TRIP_SERVER_DISABLE_LISTEN !== "1") {
 }
 
 export {
+  deleteLarkTrip,
   larkApi,
   listLarkTripRecords,
   listTripSummaries,

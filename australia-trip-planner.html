@@ -110,13 +110,15 @@
       transform: translateY(-1px);
     }
 
-    .trip-card strong {
+    .trip-card strong,
+    .trip-card-open strong {
       display: block;
       font-size: 15px;
       line-height: 1.2;
     }
 
-    .trip-card span {
+    .trip-card span,
+    .trip-card-open span {
       color: var(--muted);
       font-size: 12px;
     }
@@ -125,6 +127,63 @@
       display: flex;
       flex-wrap: wrap;
       gap: 6px;
+    }
+
+    .saved-trip-card {
+      position: relative;
+      padding: 0;
+    }
+
+    .trip-card-open {
+      width: 100%;
+      border: 0;
+      padding: 11px 48px 11px 11px;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      text-align: left;
+      display: grid;
+      gap: 7px;
+    }
+
+    .trip-delete-button {
+      position: absolute;
+      right: 9px;
+      bottom: 9px;
+      width: 30px;
+      height: 30px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      background: transparent;
+      color: #6c7880;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 auto;
+    }
+
+    .trip-delete-button:hover,
+    .trip-delete-button:focus-visible {
+      border-color: #d8a09a;
+      background: #fff3f1;
+      color: #a73a2e;
+      outline: none;
+    }
+
+    .trip-delete-button:disabled {
+      cursor: not-allowed;
+      opacity: .4;
+    }
+
+    .trip-delete-button svg {
+      width: 17px;
+      height: 17px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
     }
 
     .trip-card-meta small {
@@ -1832,10 +1891,10 @@
       if (tripGenerationTitleEl && currentGeneration) {
         tripGenerationTitleEl.textContent = currentGeneration.overlayTitle || `${currentGeneration.title || "当前行程"}${currentGeneration.statusLabel || "生成中"}`;
       }
-      document.querySelectorAll("[data-saved-trip-id]").forEach(button => {
-        const generation = [...generatingTrips.values()].find(item => item.tripId === button.dataset.savedTripId);
-        button.classList.toggle("is-generating", Boolean(generation));
-        const status = button.querySelector("[data-trip-generation-status]");
+      document.querySelectorAll("[data-saved-trip-card-id]").forEach(card => {
+        const generation = [...generatingTrips.values()].find(item => item.tripId === card.dataset.savedTripCardId);
+        card.classList.toggle("is-generating", Boolean(generation));
+        const status = card.querySelector("[data-trip-generation-status]");
         if (status && generation) {
           status.innerHTML = `<span class="mini-spinner"></span>${escapeHTML(generation.statusLabel || "生成中")}`;
         }
@@ -2333,11 +2392,57 @@
       refreshGenerationUi();
     }
 
+    function clearTripLocalState(tripId) {
+      const keys = [
+        tripBasicsStorageKey,
+        tripConstraintsStorageKey,
+        ideaStorageKey,
+        generatedTripStorageKey,
+        tripVersionsStorageKey,
+        activeVersionIdStorageKey,
+        budgetStorageKey
+      ];
+      keys.forEach(key => localStorage.removeItem(getTripScopedStorageKeyForTrip(key, tripId)));
+    }
+
+    async function deleteSavedTrip(tripId) {
+      const trip = savedTripSummaries.find(item => item.tripId === tripId);
+      const generation = [...generatingTrips.values()].find(item => item.tripId === tripId);
+      if (!trip || generation) return;
+      const title = trip.title || trip.destination || "这段行程";
+      if (!confirm(`确定删除“${title}”吗？\n\n行程、已收集建议和历史版本都会被永久删除，无法恢复。`)) return;
+
+      try {
+        await fetchJson(`/api/trip?tripId=${encodeURIComponent(tripId)}`, { method: "DELETE" });
+        clearTripLocalState(tripId);
+        savedTripSummaries = savedTripSummaries.filter(item => item.tripId !== tripId);
+        const wasActive = tripId === activeTripId;
+        renderTripSwitcherCards();
+        if (wasActive) {
+          const nextTrip = savedTripSummaries[0];
+          if (nextTrip) {
+            await openSavedTrip(nextTrip.tripId);
+          } else {
+            setActiveTripTemplate("custom");
+          }
+        }
+      } catch (error) {
+        alert(error.message || "删除行程失败");
+      }
+    }
+
     function bindTripSwitcher() {
       document.querySelectorAll("[data-new-trip]").forEach(button => {
         button.addEventListener("click", () => setActiveTripTemplate(button.dataset.newTrip));
       });
       savedTripCardsEl?.addEventListener("click", event => {
+        const deleteButton = event.target.closest("[data-delete-trip-id]");
+        if (deleteButton) {
+          event.preventDefault();
+          event.stopPropagation();
+          deleteSavedTrip(deleteButton.dataset.deleteTripId);
+          return;
+        }
         const button = event.target.closest("[data-saved-trip-id]");
         if (button) openSavedTrip(button.dataset.savedTripId);
       });
@@ -2559,12 +2664,17 @@
             .filter(Boolean);
           const generation = [...generatingTrips.values()].find(item => item.tripId === trip.tripId);
           return `
-            <button class="trip-card ${trip.tripId === activeTripId ? "active" : ""} ${generation ? "is-generating" : ""}" type="button" data-saved-trip-id="${escapeHTML(trip.tripId)}">
-              <strong>${escapeHTML(trip.title || trip.destination || "旅行计划")}</strong>
-              <span>${escapeHTML(route)}</span>
-              <span class="trip-card-meta">${metadata.map(item => `<small>${escapeHTML(item)}</small>`).join("")}</span>
-              <span class="trip-generation-status" data-trip-generation-status><span class="mini-spinner"></span>${escapeHTML(generation?.statusLabel || "生成中")}</span>
-            </button>
+            <div class="trip-card saved-trip-card ${trip.tripId === activeTripId ? "active" : ""} ${generation ? "is-generating" : ""}" data-saved-trip-card-id="${escapeHTML(trip.tripId)}">
+              <button class="trip-card-open" type="button" data-saved-trip-id="${escapeHTML(trip.tripId)}">
+                <strong>${escapeHTML(trip.title || trip.destination || "旅行计划")}</strong>
+                <span>${escapeHTML(route)}</span>
+                <span class="trip-card-meta">${metadata.map(item => `<small>${escapeHTML(item)}</small>`).join("")}</span>
+                <span class="trip-generation-status" data-trip-generation-status><span class="mini-spinner"></span>${escapeHTML(generation?.statusLabel || "生成中")}</span>
+              </button>
+              <button class="trip-delete-button" type="button" title="删除行程" aria-label="删除 ${escapeHTML(trip.title || trip.destination || "旅行计划")}" data-delete-trip-id="${escapeHTML(trip.tripId)}" ${generation ? "disabled" : ""}>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path><path d="M10 11v5"></path><path d="M14 11v5"></path></svg>
+              </button>
+            </div>
           `;
         }).join("");
       }
