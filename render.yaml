@@ -7,7 +7,7 @@ services:
     startCommand: npm start
     envVars:
       - key: ARK_MODEL
-        value: ep-m-20260604202245-c2cq2
+        value: ep-20261026111024-vhn4n
       - key: VOLCENGINE_API_KEY
         sync: false
       - key: LARK_APP_ID

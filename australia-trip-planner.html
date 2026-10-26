@@ -3156,7 +3156,12 @@
         const isStillActiveTrip = requestTripId === String(activeTripId || defaultTripId)
           && requestTemplateId === activeTripTemplate;
 
-        if (allowNewPlaces && isStillActiveTrip) {
+        if (data.constraints && isStillActiveTrip) {
+          saveTripConstraints(data.constraints);
+          activePlaceId = data.constraints.order?.[0] || "";
+        } else if (data.constraints) {
+          localStorage.setItem(getTripScopedStorageKeyForTrip(tripConstraintsStorageKey, requestTripId), JSON.stringify(data.constraints));
+        } else if (allowNewPlaces && isStillActiveTrip) {
           adoptGeneratedDestinations(nextGeneratedTrip.updatedPlaces);
         } else if (allowNewPlaces) {
           persistGeneratedDestinationsForTrip(nextGeneratedTrip.updatedPlaces, requestTripId, requestTripPayload.constraints || {});
@@ -3178,7 +3183,7 @@
           renderActiveDetail();
           if (outputEl) outputEl.innerHTML = renderAgentResult(getGeneratedTrip());
         } else {
-          persistGeneratedTripForTrip(nextGeneratedTrip, requestTripId, requestTemplateId, requestFingerprint);
+          persistGeneratedTripForTrip(nextGeneratedTrip, requestTripId, requestTemplateId, nextGeneratedTrip.constraintsFingerprint);
           persistIdeasForTrip(data.ideas, requestTripId);
           persistVersionsForTrip(data.versions || (data.version ? [data.version] : []), requestTripId);
           persistActiveVersionForTrip(data.activeVersionId || data.version?.id || "", requestTripId);
@@ -3679,7 +3684,6 @@
         const endDate = String(data.get("endDate") || "").trim();
         const requirements = String(data.get("requirements") || "").trim();
         const dates = formatDateRange(startDate, endDate);
-        const nights = getNightCount(startDate, endDate);
         const requestTripId = String(activeTripId || defaultTripId);
         const requestTemplateId = activeTripTemplate;
         const requestTitle = getTripDisplayTitle(requestTemplateId);
@@ -3709,13 +3713,13 @@
           requirements
         };
         saveTripBasics(basicsPayload);
-        const destinationId = createConstraintId(destination || "destination");
         const quickConstraints = {
           arrival: startDate ? `${startDate} 抵达 ${destination || "目的地"}` : "",
           departure: endDate ? `${endDate} 返程` : "",
-          destinations: destination ? [{ id: destinationId, name: destination, nights }] : [],
+          // The basic destination is a travel scope, not an explicit city/night constraint.
+          destinations: [],
           orderMode: "flexible",
-          order: destination ? [destinationId] : [],
+          order: [],
           lodging: "",
           accommodationBudget: "",
           fixedItems: []
@@ -3740,13 +3744,8 @@
             ? renderedConstraints.fixedItems.map(item => String(item || "").trim()).filter(Boolean)
             : quickConstraints.fixedItems
         });
-        clearGeneratedTrip();
-        try {
-          await fetchJson("/api/reset-plan", {
-            method: "POST",
-            body: JSON.stringify({ tripId: activeTripId || defaultTripId, shareKey: activeShareKey })
-          });
-        } catch {}
+        // Keep the last valid plan until the replacement has passed validation.
+        window.clearTimeout(cloudSaveTimer);
         await generateTripPlan({
           prompt: buildQuickStartPrompt(basicsPayload),
           allowNewPlaces: true,

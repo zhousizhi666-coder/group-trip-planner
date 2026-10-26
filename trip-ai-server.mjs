@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { finalizeTripPlan } from "./trip-plan-rules.js";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,7 +11,7 @@ await loadLocalEnv(join(__dirname, ".env.local"));
 const port = Number(process.env.PORT || 8787);
 const host = process.env.HOST || "0.0.0.0";
 const apiKey = process.env.VOLCENGINE_API_KEY || process.env.ARK_API_KEY || "";
-const model = process.env.ARK_MODEL || process.env.VOLCENGINE_MODEL || "ep-m-20260604202245-c2cq2";
+const model = process.env.ARK_MODEL || process.env.VOLCENGINE_MODEL || "ep-20261026111024-vhn4n";
 const baseUrl = (process.env.ARK_BASE_URL || "https://ark.cn-beijing.volces.com/api/v3").replace(/\/$/, "");
 const arkTimeoutMs = Number(process.env.ARK_TIMEOUT_MS || 75000);
 const arkMaxAttempts = Math.max(1, Number(process.env.ARK_MAX_ATTEMPTS || 2));
@@ -735,8 +736,8 @@ function buildMessages(payload) {
       ? constraints.destinations.map(destination => String(destination?.id || destination?.name || "").trim()).filter(Boolean)
       : [];
   const hasFixedDestinationPlan = constraints.orderMode === "fixed" && constrainedDestinationIds.length > 0;
-  const placeIdInstruction = hasFixedDestinationPlan
-    ? `用户已经明确给出目的地列表。updatedPlaces 必须且只能包含这些目的地 id，并按给定顺序输出：${constrainedDestinationIds.join(", ")}。不得自行新增、删除或替换目的地。`
+  const placeIdInstruction = constrainedDestinationIds.length > 0
+    ? `用户已经明确给出目的地列表。updatedPlaces 必须包含这些明确填写的目的地 id，并保留各自晚数；只有固定顺序时才须按给定顺序输出：${constrainedDestinationIds.join(", ")}。不得自行新增、删除或替换目的地。`
     : allowNewPlaces
       ? "这是初版行程生成，你可以根据目的地、日期和用户诉求自行拆分目的地模块。updatedPlaces 应输出最终建议的目的地列表，每个 id 要稳定、简短、英文或拼音小写，不能沿用无关旧示例城市。"
       : placeIds.length
@@ -1208,16 +1209,15 @@ const server = createServer(async (request, response) => {
       };
       const result = await callArk(requestPayload);
       const normalizedTrip = normalizeGeneratedTrip(result.parsed, requestPayload);
-      const version = normalizedTrip ? createVersionRecord(normalizedTrip) : null;
+      const committed = finalizeTripPlan(normalizedTrip, requestPayload.trip || {}, state);
+      const version = createVersionRecord(committed.generatedTrip);
       const nextState = normalizedTrip
         ? larkEnabled ? await writeLarkTrip({
-            ...state,
-            generatedTrip: normalizedTrip,
+            ...committed,
             versions: [version, ...state.versions].slice(0, 20),
             activeVersionId: version.id
           }, tripId, shareKey) : await writeState({
-            ...state,
-            generatedTrip: normalizedTrip,
+            ...committed,
             versions: [version, ...state.versions].slice(0, 20),
             activeVersionId: version.id
           })
@@ -1225,7 +1225,8 @@ const server = createServer(async (request, response) => {
       sendJson(response, 200, {
         model,
         plan: result.content,
-        updatedTrip: normalizedTrip,
+        updatedTrip: committed.generatedTrip,
+        constraints: committed.constraints,
         version,
         ideas: nextState.ideas,
         versions: nextState.versions,
